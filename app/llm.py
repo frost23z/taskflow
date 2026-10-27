@@ -41,7 +41,7 @@ PROVIDER_KEY_ENV = {
 
 # Short on purpose: a rate-limited or stalled model should fail over quickly. max_retries=0 stops
 # the SDK from sleeping and retrying on its own before we get to try the next model.
-TIMEOUT_SECONDS = 30
+TIMEOUT_SECONDS = 20
 MAX_RETRIES = 0
 
 
