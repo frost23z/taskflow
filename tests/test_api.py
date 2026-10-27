@@ -1,0 +1,182 @@
+import importlib
+import tomllib
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
+
+import pytest
+from chromadb.api.models.Collection import Collection
+from fastapi.testclient import TestClient
+from sqlmodel import Session, create_engine
+
+from app import database, main, services
+from app.database import get_session
+from app.llm import LLMConfigError
+from app.models import Priority, Status
+from app.schemas import TaskCreate
+
+SID = "session-abc"
+
+
+@pytest.fixture
+def client(session: Session, fake_chroma: Collection) -> Iterator[TestClient]:
+    """The API on the test database. No `with`, so the startup (init_db/reindex) does not run."""
+    main.app.dependency_overrides[get_session] = lambda: session
+    yield TestClient(main.app)
+    main.app.dependency_overrides.clear()
+
+
+def test_list_tasks_returns_task_read_objects(client: TestClient, session: Session) -> None:
+    services.create_task(
+        session, TaskCreate(title="Pay rent", priority=Priority.HIGH, status=Status.IN_PROGRESS)
+    )
+    services.create_task(session, TaskCreate(title="Buy groceries", description="Milk"))
+
+    response = client.get("/api/tasks")
+
+    assert response.status_code == 200
+    tasks = response.json()
+    assert [t["title"] for t in tasks] == ["Pay rent", "Buy groceries"]
+    first = tasks[0]
+    assert (first["priority"], first["status"], first["due_date"]) == ("high", "in_progress", None)
+    assert {"id", "created_at", "updated_at", "description"} <= first.keys()
+
+
+def test_list_tasks_empty(client: TestClient) -> None:
+    assert client.get("/api/tasks").json() == []
+
+
+def test_chat_returns_the_reply_and_the_full_current_task_list(
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    services.create_task(session, TaskCreate(title="Existing task"))
+    calls: list[tuple[str, str]] = []
+
+    def fake_run_agent(message: str, session_id: str, model: Any = None) -> str:
+        calls.append((message, session_id))
+        services.create_task(session, TaskCreate(title="Call mom"))  # what the agent's tool does
+        return "Added 'Call mom'."
+
+    monkeypatch.setattr(main, "run_agent", fake_run_agent)
+
+    response = client.post("/api/chat", json={"message": "  add call mom  ", "session_id": SID})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply"] == "Added 'Call mom'."
+    assert [t["title"] for t in body["tasks"]] == ["Existing task", "Call mom"]
+    assert calls == [("add call mom", SID)]  # trimmed message, same session id
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"message": "", "session_id": SID},
+        {"message": "    ", "session_id": SID},
+        {"message": "x" * 1001, "session_id": SID},
+        {"message": "hi", "session_id": ""},
+        {"message": "hi", "session_id": "s" * 65},
+        {"message": "hi"},
+        {"session_id": SID},
+    ],
+)
+def test_invalid_chat_requests_are_rejected_without_calling_the_agent(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, payload: dict[str, str]
+) -> None:
+    def fail(*args: Any, **kwargs: Any) -> str:
+        raise AssertionError("the agent must not run for an invalid request")
+
+    monkeypatch.setattr(main, "run_agent", fail)
+
+    response = client.post("/api/chat", json=payload)
+
+    assert response.status_code == 422
+    assert response.json()["detail"]
+
+
+def test_chat_accepts_the_length_limits(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main, "run_agent", lambda message, session_id, model=None: "ok")
+
+    response = client.post("/api/chat", json={"message": "x" * 1000, "session_id": "s" * 64})
+
+    assert response.status_code == 200
+
+
+def test_agent_failure_returns_502_json_without_internals(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(message: str, session_id: str, model: Any = None) -> str:
+        raise RuntimeError("secret internal detail: key=abc123")
+
+    monkeypatch.setattr(main, "run_agent", broken)
+
+    response = client.post("/api/chat", json={"message": "hi", "session_id": SID})
+
+    assert response.status_code == 502
+    assert response.headers["content-type"] == "application/json"
+    assert "unavailable" in response.json()["error"]
+    assert "abc123" not in response.text and "Traceback" not in response.text
+
+
+def test_missing_llm_configuration_is_a_clear_502(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def unconfigured(message: str, session_id: str, model: Any = None) -> str:
+        raise LLMConfigError("No usable model in LLM_CHAIN: set at least one of GROQ_API_KEY")
+
+    monkeypatch.setattr(main, "run_agent", unconfigured)
+
+    response = client.post("/api/chat", json={"message": "hi", "session_id": SID})
+
+    assert response.status_code == 502
+    assert "GROQ_API_KEY" in response.json()["error"]
+
+
+def test_index_serves_the_page(client: TestClient) -> None:
+    response = client.get("/")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "TASKFLOW" in response.text and "renderTasks" in response.text
+    # Tailwind 4 Play CDN with a CSS-first theme, not the v3 CDN and its JS config.
+    assert "@tailwindcss/browser@4" in response.text
+    assert 'type="text/tailwindcss"' in response.text and "tailwind.config" not in response.text
+
+
+def test_fastapi_entrypoint_points_at_the_app_not_a_route_function() -> None:
+    """`fastapi dev` with no path reads this. A function there is treated as an app factory."""
+    pyproject = Path(__file__).resolve().parent.parent / "pyproject.toml"
+    entrypoint = tomllib.loads(pyproject.read_text())["tool"]["fastapi"]["entrypoint"]
+    module_name, _, attribute = entrypoint.partition(":")
+
+    assert getattr(importlib.import_module(module_name), attribute) is main.app
+
+
+def test_startup_initialises_the_database_and_reindexes(monkeypatch: pytest.MonkeyPatch) -> None:
+    steps: list[str] = []
+    monkeypatch.setattr(main, "init_db", lambda: steps.append("init_db"))
+    monkeypatch.setattr(main, "reindex_all", lambda session: steps.append("reindex_all"))
+
+    with TestClient(main.app):  # entering the client runs the lifespan
+        assert steps == ["init_db", "reindex_all"]
+
+
+def test_fresh_setup_creates_the_database_on_startup(
+    tmp_path: Path, fake_chroma: Collection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing exists yet (not even the data folder): startup alone must make the API usable."""
+    db_path = tmp_path / "not-created-yet" / "tasks.db"
+    fresh = create_engine(f"sqlite:///{db_path}", connect_args={"check_same_thread": False})
+    monkeypatch.setattr(database, "engine", fresh)
+    monkeypatch.setattr(main, "engine", fresh)
+    assert not db_path.parent.exists()
+
+    with TestClient(main.app) as client:  # entering the client runs the lifespan
+        assert db_path.exists()
+        response = client.get("/api/tasks")
+
+    fresh.dispose()
+    assert response.status_code == 200
+    assert response.json() == []

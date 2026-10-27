@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TaskFlow – AI Task Manager</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <style type="text/tailwindcss">
+      /* Colors sampled from the reference image. */
+      @theme {
+        --color-page: #f5f7fb;
+        --color-navy: #17294a;
+        --color-navysub: #bcd0ec;
+        --color-cardborder: #e1e7f0;
+        --color-boardborder: #e1e7ee;
+        --color-rowbg: #f9fbfe;
+        --color-rowborder: #e5eaf2;
+        --color-circle: #d8e4f5;
+        --color-ring: #9db1cf;
+        --color-donecircle: #d9f2e8;
+        --color-check: #238b61;
+        --color-pill: #eff4fc;
+        --color-pilltext: #385a92;
+        --color-ink: #1d2a42;
+        --color-heading: #17233b;
+        --color-muted: #748199;
+        --color-lead: #67758d;
+        --color-donetext: #8b98a9;
+        --color-highbg: #ffebe8;
+        --color-high: #b64a3c;
+        --color-medbg: #fff1d5;
+        --color-med: #976316;
+        --color-lowbg: #e2f3ed;
+        --color-low: #2b805c;
+        --color-panel: #f8faff;
+        --color-panelborder: #dce5f5;
+        --color-aihead: #e9f0fc;
+        --color-aititle: #193967;
+        --color-aisub: #71819a;
+        --color-userbubble: #e5ecfa;
+        --color-usertext: #233854;
+        --color-botborder: #dfe7f2;
+        --color-bottext: #24364d;
+        --color-link: #346ed0;
+        --color-inputborder: #779ce3;
+        --color-label: #5879b7;
+        --color-placeholder: #8996a9;
+        --color-hint: #9aa6b8;
+        --color-send: #315fc7;
+      }
+    </style>
+  </head>
+  <body class="min-h-screen bg-page font-sans text-ink antialiased">
+    <div class="mx-auto max-w-[1520px] p-3 sm:p-6 lg:p-10">
+      <div class="overflow-hidden rounded-[28px] border-2 border-cardborder bg-white">
+        <!-- Header -->
+        <header
+          class="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 bg-navy px-6 py-5 sm:px-10 lg:py-6"
+        >
+          <h1 class="text-2xl font-extrabold tracking-wide text-white sm:text-[32px]">TASKFLOW</h1>
+          <p class="text-xs font-bold tracking-wide text-navysub sm:text-sm lg:mr-[150px]">
+            AI TASK MANAGER
+          </p>
+        </header>
+
+        <main
+          class="grid gap-6 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_525px] lg:items-start lg:gap-6 lg:px-9 lg:pb-12 lg:pt-8"
+        >
+          <!-- Left column -->
+          <section id="board-section" class="min-w-0">
+            <h2 class="text-4xl font-extrabold text-heading lg:ml-2">My tasks</h2>
+            <p class="mt-2 text-base text-lead lg:ml-2">Organize tasks by asking your AI assistant</p>
+
+            <div class="mt-8 rounded-[28px] border-2 border-boardborder bg-white p-4 sm:p-7">
+              <div class="flex items-center justify-between gap-3">
+                <h3 class="text-xl font-extrabold text-heading sm:text-2xl">Task board</h3>
+                <span
+                  class="rounded-xl bg-pill px-5 py-3 text-sm font-bold text-pilltext sm:text-base"
+                >
+                  All tasks <span id="task-count" class="ml-1">0</span>
+                </span>
+              </div>
+              <ul id="task-list" class="mt-7 space-y-3.5"></ul>
+            </div>
+          </section>
+
+          <!-- Right column -->
+          <aside
+            class="min-w-0 rounded-[28px] border-2 border-panelborder bg-panel p-5 sm:p-6 lg:sticky lg:top-6"
+          >
+            <div class="flex items-center gap-4 rounded-2xl bg-aihead px-6 py-5">
+              <span class="text-2xl text-aititle" aria-hidden="true">✦</span>
+              <h2 class="text-2xl font-extrabold text-aititle">AI Assistant</h2>
+            </div>
+            <p class="mt-4 px-3 text-sm text-aisub">Manage everything with a message</p>
+
+            <div
+              id="chat-log"
+              class="mt-4 flex h-[340px] flex-col gap-4 overflow-y-auto px-1 py-2 lg:h-[400px]"
+              aria-live="polite"
+            ></div>
+
+            <div
+              class="mt-4 rounded-2xl border-[3px] border-inputborder bg-white px-5 pb-4 pt-4"
+            >
+              <label for="chat-input" class="block text-sm font-extrabold tracking-wide text-label">
+                YOUR INSTRUCTION
+              </label>
+              <input
+                id="chat-input"
+                type="text"
+                maxlength="1000"
+                autocomplete="off"
+                placeholder="Type a task instruction…"
+                class="mt-2 w-full border-0 bg-transparent p-0 text-lg text-ink placeholder:text-placeholder focus:outline-none focus:ring-0 disabled:opacity-60"
+              />
+              <div class="mt-2 flex items-end justify-between gap-3">
+                <p class="text-sm text-hint">e.g. Complete the weekly report</p>
+                <button
+                  id="send-btn"
+                  type="button"
+                  class="cursor-pointer rounded-xl bg-send px-7 py-2.5 text-base font-extrabold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          </aside>
+        </main>
+      </div>
+    </div>
+
+    <script>
+      const SESSION_KEY = "taskflow_session_id";
+      const $ = (id) => document.getElementById(id);
+      const taskList = $("task-list");
+      const taskCount = $("task-count");
+      const chatLog = $("chat-log");
+      const chatInput = $("chat-input");
+      const sendBtn = $("send-btn");
+
+      let currentTasks = [];
+
+      // Session id: created once, then reused across reloads.
+      function getSessionId() {
+        try {
+          let id = localStorage.getItem(SESSION_KEY);
+          if (!id) {
+            id = crypto.randomUUID();
+            localStorage.setItem(SESSION_KEY, id);
+          }
+          return id;
+        } catch {
+          return crypto.randomUUID(); // storage blocked: fall back to a per-page id
+        }
+      }
+      const sessionId = getSessionId();
+
+      // Every piece of text goes through esc() before it is placed in HTML.
+      function esc(value) {
+        return String(value ?? "").replace(
+          /[&<>"']/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+        );
+      }
+
+      const STATUS_LABEL = { todo: "To do", in_progress: "In progress", done: "Done" };
+      const PRIORITY = {
+        high: { label: "High", cls: "bg-highbg text-high" },
+        medium: { label: "Medium", cls: "bg-medbg text-med" },
+        low: { label: "Low", cls: "bg-lowbg text-low" },
+      };
+      const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+      function dueLabel(task) {
+        if (task.status === "done") return "Completed";
+        if (!task.due_date) return "No due date";
+        const [y, m, d] = task.due_date.split("-").map(Number);
+        const due = new Date(y, m - 1, d);
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const days = Math.round((due - today) / 86400000);
+        if (days === 0) return "Today";
+        if (days === 1) return "Tomorrow";
+        if (days < 0) return "Overdue";
+        if (days < 7) return WEEKDAYS[due.getDay()];
+        if (days < 14) return "Next week";
+        return due.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+      }
+
+      function taskRow(task) {
+        const done = task.status === "done";
+        const pr = PRIORITY[task.priority] ?? PRIORITY.medium;
+        const circle = done
+          ? `<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-ring bg-donecircle text-lg font-bold text-check" aria-label="Done">✓</span>`
+          : `<span class="h-9 w-9 shrink-0 rounded-full border-2 border-ring bg-circle" aria-hidden="true"></span>`;
+        const titleCls = done ? "text-donetext" : "text-ink";
+        const status = STATUS_LABEL[task.status] ?? task.status;
+        return `<li class="flex items-center gap-4 rounded-2xl border border-rowborder bg-rowbg px-5 py-4">
+          ${circle}
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-lg font-extrabold ${titleCls}">${esc(task.title)}</p>
+            <p class="mt-0.5 text-sm text-muted">${esc(dueLabel(task))} <span aria-hidden="true">•</span> ${esc(status)}</p>
+          </div>
+          <span class="shrink-0 rounded-lg px-4 py-2 text-sm font-extrabold sm:min-w-[132px] ${pr.cls}">${esc(pr.label)}</span>
+        </li>`;
+      }
+
+      // The one place the board is drawn. Open tasks first, done tasks last (order otherwise kept).
+      function renderTasks(tasks) {
+        currentTasks = tasks;
+        const ordered = [...tasks].sort((a, b) => (a.status === "done") - (b.status === "done"));
+        taskCount.textContent = String(tasks.length);
+        taskList.innerHTML = ordered.length
+          ? ordered.map(taskRow).join("")
+          : `<li class="rounded-2xl border border-rowborder bg-rowbg px-5 py-6 text-center text-muted">No tasks yet. Ask the assistant to add one.</li>`;
+      }
+
+      function addBubble(kind, text, { link = false } = {}) {
+        const el = document.createElement("div");
+        const base = "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-[15px] leading-snug";
+        const styles = {
+          user: "self-end bg-userbubble text-usertext",
+          bot: "self-start border border-botborder bg-white text-bottext",
+          thinking: "self-start border border-botborder bg-white italic text-muted",
+          error: "self-start border border-high/30 bg-highbg text-high",
+        };
+        el.className = `${base} ${styles[kind]}`;
+        el.textContent = text; // textContent never parses HTML
+        if (link) {
+          const a = document.createElement("a");
+          a.href = "#board-section";
+          a.textContent = "View updated task board";
+          a.className = "mt-2 block font-bold text-link hover:underline";
+          el.appendChild(a);
+        }
+        chatLog.appendChild(el);
+        chatLog.scrollTop = chatLog.scrollHeight;
+        return el;
+      }
+
+      function setBusy(busy) {
+        sendBtn.disabled = busy;
+        chatInput.disabled = busy;
+        if (!busy) chatInput.focus();
+      }
+
+      function errorText(res, data) {
+        if (res.status === 422) return "Messages must be 1 to 1000 characters long.";
+        if (data && typeof data.error === "string") return data.error;
+        return "Something went wrong. Please try again.";
+      }
+
+      async function send() {
+        const message = chatInput.value.trim();
+        if (!message || sendBtn.disabled) return;
+        chatInput.value = "";
+        addBubble("user", message);
+        setBusy(true);
+        const thinking = addBubble("thinking", "Thinking…");
+        try {
+          const res = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message, session_id: sessionId }),
+          });
+          const data = await res.json().catch(() => null);
+          thinking.remove();
+          if (!res.ok || !data) {
+            addBubble("error", errorText(res, data));
+            return;
+          }
+          const changed = JSON.stringify(data.tasks) !== JSON.stringify(currentTasks);
+          renderTasks(data.tasks);
+          addBubble("bot", data.reply, { link: changed });
+        } catch {
+          thinking.remove();
+          addBubble("error", "Could not reach the server. Check your connection and try again.");
+        } finally {
+          setBusy(false);
+        }
+      }
+
+      sendBtn.addEventListener("click", send);
+      chatInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+          event.preventDefault();
+          send();
+        }
+      });
+
+      async function loadTasks() {
+        try {
+          const res = await fetch("/api/tasks");
+          if (!res.ok) throw new Error(String(res.status));
+          renderTasks(await res.json());
+        } catch {
+          addBubble("error", "Could not load your tasks. Please reload the page.");
+        }
+      }
+      loadTasks();
+    </script>
+  </body>
+</html>

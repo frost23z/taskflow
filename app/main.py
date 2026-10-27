@@ -1,0 +1,79 @@
+"""TaskFlow API: the task list, the chat endpoint that drives the agent, and the web page."""
+
+import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from pathlib import Path
+from typing import Annotated
+
+from fastapi import Depends, FastAPI
+from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel, Field, StringConstraints
+from sqlmodel import Session
+
+from app import services
+from app.agent import run_agent
+from app.database import engine, get_session, init_db
+from app.llm import LLMConfigError
+from app.schemas import TaskRead
+from app.search import reindex_all
+
+logger = logging.getLogger(__name__)
+
+STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+SessionDep = Annotated[Session, Depends(get_session)]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    init_db()
+    with Session(engine) as session:
+        reindex_all(session)
+    yield
+
+
+app = FastAPI(title="TaskFlow", lifespan=lifespan)
+
+
+class ChatRequest(BaseModel):
+    message: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=1000)]
+    session_id: str = Field(min_length=1, max_length=64)
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    tasks: list[TaskRead]
+
+
+@app.get("/api/tasks")
+def list_tasks(session: SessionDep) -> list[TaskRead]:
+    return [TaskRead.model_validate(task) for task in services.list_tasks(session)]
+
+
+# A plain `def`: run_agent blocks on the LLM, so FastAPI runs this in its threadpool.
+@app.post(
+    "/api/chat",
+    response_model=ChatResponse,
+    responses={502: {"description": "The agent failed"}},
+)
+def chat(body: ChatRequest, session: SessionDep) -> ChatResponse | JSONResponse:
+    try:
+        reply = run_agent(body.message, body.session_id)
+    except LLMConfigError as exc:
+        # A setup problem (no usable key). The message names variables, never secrets.
+        logger.error("LLM is not configured: %s", exc)
+        return JSONResponse(status_code=502, content={"error": str(exc)})
+    except Exception:
+        logger.exception("Agent failed")
+        return JSONResponse(
+            status_code=502,
+            content={"error": "The assistant is unavailable right now. Please try again shortly."},
+        )
+    tasks = [TaskRead.model_validate(task) for task in services.list_tasks(session)]
+    return ChatResponse(reply=reply, tasks=tasks)
+
+
+@app.get("/", include_in_schema=False)
+def index() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")

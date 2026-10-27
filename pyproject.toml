@@ -35,3 +35,6 @@ project-includes = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.fastapi]
+entrypoint = "app.main:app"
