@@ -12,7 +12,7 @@ import time
 from dotenv import load_dotenv
 from langchain_core.tools import tool
 
-from app.llm import PROVIDER_KEY_ENV, ChainEntry, create_model, parse_chain
+from app.llm import PROVIDER_KEY_ENV, ChainEntry, create_model, entry_keys, parse_chain
 
 PROMPT = "What is 17 + 25? Use the tool."
 
@@ -44,12 +44,12 @@ def main() -> int:
     load_dotenv()
     failures = 0
     for entry in parse_chain(os.getenv("LLM_CHAIN", "")):
-        key_var = PROVIDER_KEY_ENV[entry.provider]
-        key = os.getenv(key_var, "").strip()
-        if not key:
-            print(f"SKIP {entry.label:<50} {key_var} is not set")
-        elif not check(entry, key):
-            failures += 1
+        pairs = entry_keys(entry, os.environ)
+        if not pairs:
+            print(f"SKIP {entry.label:<50} {PROVIDER_KEY_ENV[entry.provider]} is not set")
+        for keyed_entry, key in pairs:
+            if not check(keyed_entry, key):
+                failures += 1
     return 1 if failures else 0
 
 

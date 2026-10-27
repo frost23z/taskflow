@@ -147,6 +147,35 @@ def test_build_model_repeated_provider_makes_separate_models(created) -> None:
     assert [c["model"] for c in created] == ["a", "b"]
 
 
+def chain_labels(middleware: list[Any]) -> list[str]:
+    [fallback] = middleware
+    assert isinstance(fallback, ProviderFallbackMiddleware)
+    return [label for label, _ in fallback.chain]
+
+
+def test_comma_separated_keys_expand_each_entry_in_order(created) -> None:
+    env = {"GOOGLE_API_KEY": "k1, k2 ,", "GROQ_API_KEY": "q"}
+    _, middleware = build_model("google_genai:a,groq:b,google_genai:c", env)
+    assert chain_labels(middleware) == [
+        "google_genai:a#1",
+        "google_genai:a#2",
+        "groq:b",
+        "google_genai:c#1",
+        "google_genai:c#2",
+    ]
+    assert [c["api_key"] for c in created] == ["k1", "k2", "q", "k1", "k2"]
+
+
+def test_single_key_has_no_slot_suffix(created) -> None:
+    _, middleware = build_model("google_genai:a", {"GOOGLE_API_KEY": "k1"})
+    assert chain_labels(middleware) == ["google_genai:a"]
+
+
+def test_blank_key_list_counts_as_missing(created) -> None:
+    with pytest.raises(LLMConfigError, match="No usable model"):
+        build_model("google_genai:a", {"GOOGLE_API_KEY": " , "})
+
+
 # --- which errors count as provider failures ----------------------------------------------------
 
 

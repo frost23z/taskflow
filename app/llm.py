@@ -10,7 +10,7 @@ and the rest are fallbacks. Use it like this:
 import logging
 import os
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import groq
@@ -53,10 +53,13 @@ class LLMConfigError(ValueError):
 class ChainEntry:
     provider: str
     model: str
+    # 1-based position among several comma-separated keys; None when the provider has one key.
+    key_slot: int | None = None
 
     @property
     def label(self) -> str:
-        return f"{self.provider}:{self.model}"
+        base = f"{self.provider}:{self.model}"
+        return base if self.key_slot is None else f"{base}#{self.key_slot}"
 
 
 def parse_chain(raw: str) -> list[ChainEntry]:
@@ -79,18 +82,33 @@ def parse_chain(raw: str) -> list[ChainEntry]:
     return entries
 
 
+def entry_keys(entry: ChainEntry, env: Mapping[str, str]) -> list[tuple[ChainEntry, str]]:
+    """Expand an entry into one (entry, key) pair per API key set for its provider.
+
+    The key variable may hold several comma-separated keys (for example Gemini keys from separate
+    Google Cloud projects, whose quotas are independent). Each key becomes its own model, tried in
+    the order written, before the chain moves on to the next entry. Returns [] if no key is set.
+    """
+    keys = [k.strip() for k in env.get(PROVIDER_KEY_ENV[entry.provider], "").split(",")]
+    keys = [k for k in keys if k]
+    if len(keys) <= 1:
+        return [(entry, key) for key in keys]
+    return [(replace(entry, key_slot=slot), key) for slot, key in enumerate(keys, start=1)]
+
+
 def usable_entries(
     entries: Sequence[ChainEntry], env: Mapping[str, str]
 ) -> list[tuple[ChainEntry, str]]:
-    """Pair each entry with its API key. Entries without a key are skipped with a warning."""
+    """Pair each entry with its API key(s). Entries without a key are skipped with a warning."""
     usable: list[tuple[ChainEntry, str]] = []
     for entry in entries:
-        key_var = PROVIDER_KEY_ENV[entry.provider]
-        key = env.get(key_var, "").strip()
-        if key:
-            usable.append((entry, key))
+        pairs = entry_keys(entry, env)
+        if pairs:
+            usable.extend(pairs)
         else:
-            logger.warning("Skipping %s: %s is not set", entry.label, key_var)
+            logger.warning(
+                "Skipping %s: %s is not set", entry.label, PROVIDER_KEY_ENV[entry.provider]
+            )
     if not usable:
         needed = ", ".join(sorted({PROVIDER_KEY_ENV[e.provider] for e in entries}))
         raise LLMConfigError(f"No usable model in LLM_CHAIN: set at least one of {needed}")
