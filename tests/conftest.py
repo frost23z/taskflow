@@ -1,11 +1,15 @@
 import os
+import uuid
 from collections.abc import Iterator
 from pathlib import Path
 
+import chromadb
 import pytest
+from chromadb.api.models.Collection import Collection
 from dotenv import load_dotenv
 from sqlmodel import Session, SQLModel, create_engine
 
+from app import search
 from app.database import DATABASE_URL
 
 load_dotenv()
@@ -28,3 +32,14 @@ def session() -> Iterator[Session]:
     with Session(engine) as session:
         yield session
     engine.dispose()
+
+
+@pytest.fixture
+def chroma() -> Iterator[Collection]:
+    # Ephemeral clients share state inside one process, so every test gets its own collection.
+    client = chromadb.EphemeralClient()
+    collection = search.make_collection(client, name=f"tasks-{uuid.uuid4().hex}")
+    search.set_collection(collection)
+    yield collection
+    search.set_collection(None)
+    client.delete_collection(collection.name)
