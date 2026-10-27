@@ -2,7 +2,9 @@
 name = "taskflow"
 version = "0.1.0"
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "fastapi[standard]>=0.162.0",
+]
 
 # https://pydevtools.com/handbook/tutorial/set-up-a-complete-python-project/
 [dependency-groups]
