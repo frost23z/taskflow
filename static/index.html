@@ -6,6 +6,9 @@
     <title>TaskFlow – AI Task Manager</title>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
     <style type="text/tailwindcss">
+      /* Compact mode for short screens (small laptops): trims spacing so more fits. */
+      @custom-variant short (@media (max-height: 760px));
+
       /* Colors sampled from the reference image. */
       @theme {
         --color-page: #f5f7fb;
@@ -47,84 +50,143 @@
         --color-placeholder: #8996a9;
         --color-hint: #9aa6b8;
         --color-send: #315fc7;
+        --color-progress: #f2b84b;
+        --color-progressbg: #fff6e0;
+      }
+    </style>
+    <style>
+      .thin-scroll {
+        scrollbar-width: thin;
+        scrollbar-color: #c3d1e8 transparent;
+      }
+      @media (prefers-reduced-motion: reduce) {
+        * {
+          transition: none !important;
+          scroll-behavior: auto !important;
+        }
       }
     </style>
   </head>
-  <body class="min-h-screen bg-page font-sans text-ink antialiased">
-    <div class="mx-auto max-w-[1520px] p-3 sm:p-6 lg:p-10">
-      <div class="overflow-hidden rounded-[28px] border-2 border-cardborder bg-white">
-        <!-- Header -->
+  <body class="bg-page font-sans text-ink antialiased">
+    <!-- lg+: the shell is exactly one viewport tall, so only the task list and chat scroll. -->
+    <div
+      class="mx-auto flex min-h-dvh max-w-[1520px] flex-col p-3 sm:p-5 lg:h-dvh lg:min-h-[560px] lg:p-6 xl:p-8 2xl:p-10 lg:short:p-3"
+    >
+      <div
+        class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border-2 border-cardborder bg-white sm:rounded-[28px]"
+      >
         <header
-          class="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 bg-navy px-6 py-5 sm:px-10 lg:py-6"
+          class="flex shrink-0 items-center justify-between gap-x-4 bg-navy px-5 py-4 sm:px-8 sm:py-5 lg:px-9 lg:short:py-2.5"
         >
-          <h1 class="text-2xl font-extrabold tracking-wide text-white sm:text-[32px]">TASKFLOW</h1>
-          <p class="text-xs font-bold tracking-wide text-navysub sm:text-sm lg:mr-[150px]">
+          <h1
+            class="text-2xl font-extrabold tracking-wide text-white sm:text-[32px] lg:short:text-2xl"
+          >
+            TASKFLOW
+          </h1>
+          <p class="text-xs font-bold tracking-wide text-navysub sm:text-sm">
             AI TASK MANAGER
           </p>
         </header>
 
         <main
-          class="grid gap-6 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_525px] lg:items-start lg:gap-6 lg:px-9 lg:pb-12 lg:pt-8"
+          class="grid min-h-0 flex-1 gap-5 p-4 sm:p-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[minmax(0,1fr)] lg:gap-6 lg:px-9 lg:pb-9 lg:pt-7 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] lg:short:gap-4 lg:short:pb-4 lg:short:pt-3"
         >
           <!-- Left column -->
-          <section id="board-section" class="min-w-0">
-            <h2 class="text-4xl font-extrabold text-heading lg:ml-2">My tasks</h2>
-            <p class="mt-2 text-base text-lead lg:ml-2">Organize tasks by asking your AI assistant</p>
+          <section class="flex min-h-0 min-w-0 flex-col">
+            <div class="shrink-0 lg:ml-2">
+              <h2
+                class="text-3xl font-extrabold text-heading sm:text-4xl lg:short:text-2xl"
+              >
+                My tasks
+              </h2>
+              <p class="mt-1.5 text-sm text-lead sm:text-base lg:short:mt-0.5">
+                Organize tasks by asking your AI assistant
+              </p>
+            </div>
 
-            <div class="mt-8 rounded-[28px] border-2 border-boardborder bg-white p-4 sm:p-7">
-              <div class="flex items-center justify-between gap-3">
-                <h3 class="text-xl font-extrabold text-heading sm:text-2xl">Task board</h3>
+            <div
+              id="board-card"
+              class="mt-5 flex min-h-0 flex-1 flex-col rounded-3xl border-2 border-boardborder bg-white p-4 transition-shadow duration-500 sm:mt-6 sm:rounded-[28px] sm:p-6 lg:short:mt-3 lg:short:p-4"
+            >
+              <div
+                class="flex shrink-0 flex-wrap items-center justify-between gap-3"
+              >
+                <h3 class="text-xl font-extrabold text-heading sm:text-2xl">
+                  Task board
+                </h3>
                 <span
-                  class="rounded-xl bg-pill px-5 py-3 text-sm font-bold text-pilltext sm:text-base"
+                  class="shrink-0 rounded-xl bg-pill px-4 py-2.5 text-sm font-bold text-pilltext sm:px-5 sm:py-3 sm:text-base"
+                  >All tasks <span id="task-count" class="ml-1">0</span></span
                 >
-                  All tasks <span id="task-count" class="ml-1">0</span>
-                </span>
               </div>
-              <ul id="task-list" class="mt-7 space-y-3.5"></ul>
+              <ul
+                id="task-list"
+                class="thin-scroll @container mt-5 min-h-0 flex-1 space-y-3 overflow-y-auto pr-1 lg:short:mt-3 lg:short:space-y-2"
+              ></ul>
             </div>
           </section>
 
           <!-- Right column -->
           <aside
-            class="min-w-0 rounded-[28px] border-2 border-panelborder bg-panel p-5 sm:p-6 lg:sticky lg:top-6"
+            class="flex min-h-0 min-w-0 flex-col rounded-3xl border-2 border-panelborder bg-panel p-4 sm:rounded-[28px] sm:p-5 lg:short:p-3"
           >
-            <div class="flex items-center gap-4 rounded-2xl bg-aihead px-6 py-5">
-              <span class="text-2xl text-aititle" aria-hidden="true">✦</span>
-              <h2 class="text-2xl font-extrabold text-aititle">AI Assistant</h2>
+            <div
+              class="flex shrink-0 items-center gap-3 rounded-2xl bg-aihead px-5 py-4 lg:short:py-2.5"
+            >
+              <span class="text-xl text-aititle sm:text-2xl" aria-hidden="true"
+                >✦</span
+              >
+              <h2 class="text-xl font-extrabold text-aititle sm:text-2xl">
+                AI Assistant
+              </h2>
             </div>
-            <p class="mt-4 px-3 text-sm text-aisub">Manage everything with a message</p>
+            <p class="mt-3 shrink-0 px-2 text-sm text-aisub lg:short:mt-2">
+              Manage everything with a message
+            </p>
 
             <div
               id="chat-log"
-              class="mt-4 flex h-[340px] flex-col gap-4 overflow-y-auto px-1 py-2 lg:h-[400px]"
+              class="thin-scroll mt-2 flex h-[340px] min-h-[140px] flex-col gap-3 overflow-y-auto px-1 py-2 sm:h-[420px] lg:h-auto lg:flex-1"
               aria-live="polite"
             ></div>
 
             <div
-              class="mt-4 rounded-2xl border-[3px] border-inputborder bg-white px-5 pb-4 pt-4"
+              id="chips"
+              class="mt-2 flex shrink-0 gap-2 overflow-x-auto pb-1 thin-scroll"
+            ></div>
+
+            <form
+              id="chat-form"
+              class="mt-2 shrink-0 rounded-2xl border-[3px] border-inputborder bg-white px-4 pb-3 pt-3 focus-within:border-send sm:px-5 sm:pb-4 sm:pt-4 lg:short:pb-2.5 lg:short:pt-2.5"
             >
-              <label for="chat-input" class="block text-sm font-extrabold tracking-wide text-label">
-                YOUR INSTRUCTION
-              </label>
+              <label
+                for="chat-input"
+                class="block text-xs font-extrabold tracking-wide text-label sm:text-sm"
+                >Your instruction</label
+              >
               <input
                 id="chat-input"
                 type="text"
                 maxlength="1000"
                 autocomplete="off"
                 placeholder="Type a task instruction…"
-                class="mt-2 w-full border-0 bg-transparent p-0 text-lg text-ink placeholder:text-placeholder focus:outline-none focus:ring-0 disabled:opacity-60"
+                class="mt-1.5 w-full border-0 bg-transparent p-0 text-base text-ink placeholder:text-placeholder focus:outline-none disabled:opacity-60 sm:text-lg"
               />
               <div class="mt-2 flex items-end justify-between gap-3">
-                <p class="text-sm text-hint">e.g. Complete the weekly report</p>
+                <p
+                  class="min-w-0 flex-1 text-xs leading-tight text-hint sm:text-sm"
+                >
+                  e.g. Complete the weekly report
+                </p>
                 <button
                   id="send-btn"
-                  type="button"
-                  class="cursor-pointer rounded-xl bg-send px-7 py-2.5 text-base font-extrabold text-white transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                  type="submit"
+                  class="shrink-0 cursor-pointer rounded-xl bg-send px-6 py-2.5 text-base font-extrabold text-white transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-send disabled:cursor-not-allowed disabled:opacity-60 sm:px-7"
                 >
                   Send
                 </button>
               </div>
-            </div>
+            </form>
           </aside>
         </main>
       </div>
@@ -135,13 +197,14 @@
       const $ = (id) => document.getElementById(id);
       const taskList = $("task-list");
       const taskCount = $("task-count");
+      const chipsEl = $("chips");
+      const boardCard = $("board-card");
       const chatLog = $("chat-log");
       const chatInput = $("chat-input");
       const sendBtn = $("send-btn");
 
       let currentTasks = [];
 
-      // Session id: created once, then reused across reloads.
       function getSessionId() {
         try {
           let id = localStorage.getItem(SESSION_KEY);
@@ -151,7 +214,7 @@
           }
           return id;
         } catch {
-          return crypto.randomUUID(); // storage blocked: fall back to a per-page id
+          return crypto.randomUUID();
         }
       }
       const sessionId = getSessionId();
@@ -160,17 +223,36 @@
       function esc(value) {
         return String(value ?? "").replace(
           /[&<>"']/g,
-          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
         );
       }
 
-      const STATUS_LABEL = { todo: "To do", in_progress: "In progress", done: "Done" };
+      const STATUS_LABEL = {
+        todo: "To do",
+        in_progress: "In progress",
+        done: "Done",
+      };
       const PRIORITY = {
         high: { label: "High", cls: "bg-highbg text-high" },
         medium: { label: "Medium", cls: "bg-medbg text-med" },
         low: { label: "Low", cls: "bg-lowbg text-low" },
       };
-      const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+      const WEEKDAYS = [
+        "Sunday",
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+      ];
 
       function dueLabel(task) {
         if (task.status === "done") return "Completed";
@@ -178,66 +260,126 @@
         const [y, m, d] = task.due_date.split("-").map(Number);
         const due = new Date(y, m - 1, d);
         const now = new Date();
-        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const today = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+        );
         const days = Math.round((due - today) / 86400000);
         if (days === 0) return "Today";
         if (days === 1) return "Tomorrow";
         if (days < 0) return "Overdue";
         if (days < 7) return WEEKDAYS[due.getDay()];
         if (days < 14) return "Next week";
-        return due.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        return due.toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+        });
+      }
+
+      // Status marker: empty ring = to do, half-filled = in progress, check = done.
+      function marker(status) {
+        const size =
+          "h-8 w-8 shrink-0 rounded-full border-2 border-ring @md:h-9 @md:w-9";
+        if (status === "done")
+          return `<span class="flex ${size} items-center justify-center bg-donecircle text-base font-bold text-check @md:text-lg" role="img" aria-label="Done">✓</span>`;
+        if (status === "in_progress")
+          return `<span class="${size} bg-[linear-gradient(90deg,var(--color-progress)_50%,var(--color-progressbg)_50%)] border-progress" role="img" aria-label="In progress"></span>`;
+        return `<span class="${size} bg-circle" role="img" aria-label="To do"></span>`;
       }
 
       function taskRow(task) {
         const done = task.status === "done";
         const pr = PRIORITY[task.priority] ?? PRIORITY.medium;
-        const circle = done
-          ? `<span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 border-ring bg-donecircle text-lg font-bold text-check" aria-label="Done">✓</span>`
-          : `<span class="h-9 w-9 shrink-0 rounded-full border-2 border-ring bg-circle" aria-hidden="true"></span>`;
-        const titleCls = done ? "text-donetext" : "text-ink";
         const status = STATUS_LABEL[task.status] ?? task.status;
-        return `<li class="flex items-center gap-4 rounded-2xl border border-rowborder bg-rowbg px-5 py-4">
-          ${circle}
-          <div class="min-w-0 flex-1">
-            <p class="truncate text-lg font-extrabold ${titleCls}">${esc(task.title)}</p>
-            <p class="mt-0.5 text-sm text-muted">${esc(dueLabel(task))} <span aria-hidden="true">•</span> ${esc(status)}</p>
+        const overdue = dueLabel(task) === "Overdue";
+        // Rows adapt to the list's own width (container queries), not the window's.
+        return `<li class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-2xl border border-rowborder bg-rowbg px-4 py-3.5 @md:grid-cols-[auto_minmax(0,1fr)_auto] @md:gap-x-4 @md:px-5 @md:py-4 lg:short:py-2.5!">
+          ${marker(task.status)}
+          <div class="min-w-0">
+            <p class="break-words text-base font-extrabold leading-snug @md:text-lg ${done ? "text-donetext" : "text-ink"}">${esc(task.title)}</p>
+            <p class="mt-0.5 text-sm ${overdue ? "font-bold text-high" : "text-muted"}">${esc(dueLabel(task))} <span aria-hidden="true">•</span> ${esc(status)}</p>
           </div>
-          <span class="shrink-0 rounded-lg px-4 py-2 text-sm font-extrabold sm:min-w-[132px] ${pr.cls}">${esc(pr.label)}</span>
+          <span class="col-start-2 justify-self-start rounded-lg px-3.5 py-1.5 text-xs font-extrabold @md:col-start-3 @md:justify-self-end @md:px-4 @md:py-2 @md:text-sm @xl:min-w-[132px] @xl:text-center ${pr.cls}">${esc(pr.label)}</span>
         </li>`;
       }
 
-      // The one place the board is drawn. Open tasks first, done tasks last (order otherwise kept).
+      // The one place the board is drawn. Open tasks first, done tasks last.
       function renderTasks(tasks) {
         currentTasks = tasks;
-        const ordered = [...tasks].sort((a, b) => (a.status === "done") - (b.status === "done"));
+        const ordered = [...tasks].sort(
+          (a, b) => (a.status === "done") - (b.status === "done"),
+        );
         taskCount.textContent = String(tasks.length);
         taskList.innerHTML = ordered.length
           ? ordered.map(taskRow).join("")
-          : `<li class="rounded-2xl border border-rowborder bg-rowbg px-5 py-6 text-center text-muted">No tasks yet. Ask the assistant to add one.</li>`;
+          : `<li class="rounded-2xl border border-dashed border-rowborder bg-rowbg px-5 py-8 text-center text-muted">No tasks yet. Ask the assistant to add one.</li>`;
+      }
+
+      // Escape first, then turn **bold** into <strong>. Escaped text has no tags left to abuse.
+      function inlineMarkdown(text) {
+        return esc(text).replace(
+          /\*\*([^*\n]+?)\*\*/g,
+          '<strong class="font-extrabold">$1</strong>',
+        );
+      }
+
+      function showBoard() {
+        taskList.scrollTo?.({ top: 0, behavior: "smooth" });
+        boardCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        boardCard.classList.add("shadow-[0_0_0_4px_#779ce366]");
+        setTimeout(
+          () => boardCard.classList.remove("shadow-[0_0_0_4px_#779ce366]"),
+          1400,
+        );
       }
 
       function addBubble(kind, text, { link = false } = {}) {
         const el = document.createElement("div");
-        const base = "max-w-[85%] whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-[15px] leading-snug";
+        // shrink-0: a flex child would otherwise be squashed (and clipped) in a full log.
+        const base =
+          "max-w-[88%] shrink-0 whitespace-pre-wrap break-words rounded-2xl px-4 py-3 text-[15px] leading-snug sm:max-w-[85%]";
         const styles = {
           user: "self-end bg-userbubble text-usertext",
           bot: "self-start border border-botborder bg-white text-bottext",
-          thinking: "self-start border border-botborder bg-white italic text-muted",
+          thinking:
+            "self-start border border-botborder bg-white italic text-muted",
           error: "self-start border border-high/30 bg-highbg text-high",
         };
         el.className = `${base} ${styles[kind]}`;
-        el.textContent = text; // textContent never parses HTML
+        if (kind === "bot") el.innerHTML = inlineMarkdown(text);
+        else el.textContent = text; // textContent never parses HTML
         if (link) {
           const a = document.createElement("a");
-          a.href = "#board-section";
+          a.href = "#board-card";
           a.textContent = "View updated task board";
           a.className = "mt-2 block font-bold text-link hover:underline";
+          a.addEventListener("click", (event) => {
+            event.preventDefault();
+            showBoard();
+          });
           el.appendChild(a);
         }
         chatLog.appendChild(el);
         chatLog.scrollTop = chatLog.scrollHeight;
         return el;
       }
+
+      const SUGGESTIONS = [
+        "Add a task: Call the dentist",
+        "Mark Meeting at 10 as done",
+        "What is due today?",
+      ];
+      chipsEl.innerHTML = SUGGESTIONS.map(
+        (s) =>
+          `<button type="button" data-chip class="shrink-0 cursor-pointer whitespace-nowrap rounded-full border border-botborder bg-white px-3.5 py-1.5 text-xs font-bold text-pilltext transition hover:bg-aihead focus-visible:outline-2 focus-visible:outline-send">${esc(s)}</button>`,
+      ).join("");
+      chipsEl.addEventListener("click", (event) => {
+        const chip = event.target.closest("[data-chip]");
+        if (!chip || sendBtn.disabled) return;
+        chatInput.value = chip.textContent;
+        chatInput.focus();
+      });
 
       function setBusy(busy) {
         sendBtn.disabled = busy;
@@ -246,7 +388,8 @@
       }
 
       function errorText(res, data) {
-        if (res.status === 422) return "Messages must be 1 to 1000 characters long.";
+        if (res.status === 422)
+          return "Messages must be 1 to 1000 characters long.";
         if (data && typeof data.error === "string") return data.error;
         return "Something went wrong. Please try again.";
       }
@@ -270,23 +413,24 @@
             addBubble("error", errorText(res, data));
             return;
           }
-          const changed = JSON.stringify(data.tasks) !== JSON.stringify(currentTasks);
+          const changed =
+            JSON.stringify(data.tasks) !== JSON.stringify(currentTasks);
           renderTasks(data.tasks);
           addBubble("bot", data.reply, { link: changed });
         } catch {
           thinking.remove();
-          addBubble("error", "Could not reach the server. Check your connection and try again.");
+          addBubble(
+            "error",
+            "Could not reach the server. Check your connection and try again.",
+          );
         } finally {
           setBusy(false);
         }
       }
 
-      sendBtn.addEventListener("click", send);
-      chatInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
-          event.preventDefault();
-          send();
-        }
+      $("chat-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        send();
       });
 
       async function loadTasks() {
@@ -295,7 +439,10 @@
           if (!res.ok) throw new Error(String(res.status));
           renderTasks(await res.json());
         } catch {
-          addBubble("error", "Could not load your tasks. Please reload the page.");
+          addBubble(
+            "error",
+            "Could not load your tasks. Please reload the page.",
+          );
         }
       }
       loadTasks();
