@@ -1,7 +1,8 @@
-"""Fixtures for the demo recording: a throwaway TaskFlow server and a 720p recorded browser.
+"""Fixtures for the demo recording: a throwaway TaskFlow server and a recorded 1440x900 browser.
 
-The server gets its own temporary SQLite file and Chroma index, seeded with the demo tasks, so a
-run never touches your real data. It reads LLM keys from your normal .env, so the chat is real.
+The server gets its own temporary SQLite file and Chroma index, seeded with the six-task demo
+board, so a run never touches your real data. It reads LLM keys from your normal .env, so the
+chat is real.
 """
 
 import os
@@ -21,7 +22,8 @@ from playwright.sync_api import Page
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT = Path(__file__).resolve().parent / "output"
-VIDEO_SIZE = {"width": 1280, "height": 720}
+# Tall enough that the whole board is visible while it changes (no scrolling in the video).
+VIDEO_SIZE = {"width": 1440, "height": 900}
 
 
 def _free_port() -> int:
@@ -41,7 +43,7 @@ def base_url() -> Iterator[str]:
         "CHECKPOINT_PATH": str(data_dir / "checkpoints.db"),
         "APP_ENV": "prod",  # no SQL logging in the server output
     }
-    subprocess.run([sys.executable, "-m", "app.seed"], cwd=ROOT, env=env, check=True)
+    subprocess.run([sys.executable, "-m", "app.seed", "--demo"], cwd=ROOT, env=env, check=True)
 
     port = _free_port()
     url = f"http://127.0.0.1:{port}"

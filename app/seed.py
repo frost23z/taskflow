@@ -199,18 +199,18 @@ def _days_to_friday() -> int:
 
 
 # A small board for demos and screen recordings: the six tasks of the assignment's UI reference.
-# It fits on screen without scrolling, so every change the chat makes is visible.
+# Small enough to fit on screen in the 1440x900 demo recording, so every change is visible.
 DEMO_TASKS: list[tuple[str, str, Status, Priority, int | None]] = [
     (
         "Finish AI presentation",
-        "Polish the slides and rehearse the talk for Thursday's review.",
+        "Polish the slides and rehearse the live demo for Thursday's review.",
         TODO,
         HIGH,
         1,
     ),
     (
         "Review pull request #82",
-        "Check the new login endpoint and leave comments before merging.",
+        "Check the new API endpoints for the login flow and leave review comments before merging.",
         DOING,
         MEDIUM,
         0,
