@@ -163,14 +163,14 @@ def _parse_enum[E: StrEnum](enum_class: type[E], value: str | None, name: str) -
         raise ToolInputError(f"{name} must be one of: {allowed} (got {value!r})") from None
 
 
-def _parse_date(value: str | None) -> date | None:
+def _parse_date(value: str | None, name: str = "due_date") -> date | None:
     if value is None:
         return None
     try:
         return date.fromisoformat(value.strip())
     except ValueError:
         raise ToolInputError(
-            f"due_date must be an ISO date like 2026-10-31 (got {value!r})"
+            f"{name} must be an ISO date like 2026-10-31 (got {value!r})"
         ) from None
 
 
@@ -265,17 +265,47 @@ def create_task(
 
 @tool
 @_guard
-def list_tasks(status: str | None = None, priority: str | None = None) -> str:
-    """List tasks, optionally filtered. Use search_tasks to find tasks by topic instead.
+def list_tasks(
+    status: str | None = None,
+    priority: str | None = None,
+    due_before: str | None = None,
+    due_after: str | None = None,
+    overdue: bool = False,
+    has_due_date: bool | None = None,
+    sort_by: str = "id",
+    order: str = "asc",
+) -> str:
+    """List tasks, filtered and sorted. Use search_tasks to find tasks by topic instead.
 
     Args:
         status: Optional filter: todo, in_progress or done.
         priority: Optional filter: low, medium or high.
+        due_before: Only tasks due on or before this ISO date (e.g. "by Friday").
+        due_after: Only tasks due on or after this ISO date.
+        overdue: True for tasks past their due date that are not done.
+        has_due_date: True for tasks with a due date, false for tasks without one.
+        sort_by: id (default), due_date, priority or created_at.
+        order: asc or desc. asc = soonest due, oldest created or lowest priority first;
+            desc = latest due, newest created or highest priority first. For "highest
+            priority first" use sort_by=priority, order=desc. Tasks without a due date come
+            last when sorting by due date.
     """
     wanted_status = _parse_enum(Status, status, "status")
     wanted_priority = _parse_enum(Priority, priority, "priority")
+    wanted_sort = _parse_enum(services.SortBy, sort_by, "sort_by") or services.SortBy.ID
+    wanted_order = _parse_enum(services.SortOrder, order, "order") or services.SortOrder.ASC
     with _open_session() as session:
-        tasks = services.list_tasks(session, wanted_status, wanted_priority)
+        tasks = services.list_tasks(
+            session,
+            wanted_status,
+            wanted_priority,
+            due_before=_parse_date(due_before, "due_before"),
+            due_after=_parse_date(due_after, "due_after"),
+            overdue=overdue,
+            has_due_date=has_due_date,
+            sort_by=wanted_sort,
+            order=wanted_order,
+        )
         if not tasks:
             return "No tasks found."
         lines = [_line(task) for task in tasks[:MAX_LISTED]]

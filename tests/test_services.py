@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 from chromadb.api.models.Collection import Collection
 from sqlmodel import Session
@@ -112,3 +112,111 @@ def test_delete_task_removes_row_and_index_entry(session: Session, chroma: Colle
 
 def test_delete_task_returns_false_when_missing(session: Session, chroma: Collection) -> None:
     assert services.delete_task(session, 999) is False
+
+
+# --- filtering and sorting -----------------------------------------------------------------------
+
+
+def make_tasks(session: Session) -> dict[str, int]:
+    """Five tasks that exercise every filter and sort. Dates are relative to today."""
+    today = date.today()
+    rows = [
+        ("late", Priority.LOW, Status.TODO, today - timedelta(days=3)),
+        ("late-done", Priority.HIGH, Status.DONE, today - timedelta(days=2)),
+        ("today", Priority.MEDIUM, Status.IN_PROGRESS, today),
+        ("later", Priority.HIGH, Status.TODO, today + timedelta(days=5)),
+        ("undated", Priority.MEDIUM, Status.TODO, None),
+    ]
+    ids = {}
+    for title, priority, status, due in rows:
+        task = services.create_task(
+            session, TaskCreate(title=title, priority=priority, status=status, due_date=due)
+        )
+        assert task.id is not None
+        ids[title] = task.id
+    return ids
+
+
+def listed(session: Session, **options) -> list[str]:
+    return [task.title for task in services.list_tasks(session, **options)]
+
+
+def test_list_tasks_due_date_filters_are_inclusive(session: Session, chroma: Collection) -> None:
+    make_tasks(session)
+    today = date.today()
+
+    assert listed(session, due_before=today) == ["late", "late-done", "today"]
+    assert listed(session, due_after=today) == ["today", "later"]
+    assert listed(session, due_after=today, due_before=today) == ["today"]
+
+
+def test_list_tasks_overdue_ignores_done_and_undated_tasks(
+    session: Session, chroma: Collection
+) -> None:
+    make_tasks(session)
+
+    assert listed(session, overdue=True) == ["late"]
+
+
+def test_list_tasks_has_due_date(session: Session, chroma: Collection) -> None:
+    make_tasks(session)
+
+    assert listed(session, has_due_date=False) == ["undated"]
+    assert len(listed(session, has_due_date=True)) == 4
+
+
+def test_list_tasks_filters_combine(session: Session, chroma: Collection) -> None:
+    make_tasks(session)
+
+    assert listed(session, status=Status.TODO, due_before=date.today()) == ["late"]
+    assert listed(session, priority=Priority.HIGH, has_due_date=True, overdue=True) == []
+
+
+def test_list_tasks_sorts_by_due_date_with_undated_last_in_both_directions(
+    session: Session, chroma: Collection
+) -> None:
+    make_tasks(session)
+
+    asc = listed(session, sort_by=services.SortBy.DUE_DATE)
+    desc = listed(session, sort_by=services.SortBy.DUE_DATE, order=services.SortOrder.DESC)
+
+    assert asc == ["late", "late-done", "today", "later", "undated"]
+    assert desc == ["later", "today", "late-done", "late", "undated"]
+
+
+def test_list_tasks_sorts_priority_by_meaning_not_alphabet(
+    session: Session, chroma: Collection
+) -> None:
+    make_tasks(session)
+
+    highest_first = listed(session, sort_by=services.SortBy.PRIORITY, order=services.SortOrder.DESC)
+    lowest_first = listed(session, sort_by=services.SortBy.PRIORITY)
+
+    # Ties (two high, two medium) keep id order.
+    assert highest_first == ["late-done", "later", "today", "undated", "late"]
+    assert lowest_first == ["late", "today", "undated", "late-done", "later"]
+
+
+def test_list_tasks_sorts_by_id_and_created_at(session: Session, chroma: Collection) -> None:
+    make_tasks(session)
+    desc = services.SortOrder.DESC
+
+    assert listed(session, sort_by=services.SortBy.ID, order=desc) == [
+        "undated", "later", "today", "late-done", "late",
+    ]  # fmt: skip
+    assert listed(session, sort_by=services.SortBy.CREATED_AT)[0] == "late"
+    assert listed(session, sort_by=services.SortBy.CREATED_AT, order=desc)[-1] == "late"
+
+
+def test_list_tasks_filter_and_sort_work_together(session: Session, chroma: Collection) -> None:
+    make_tasks(session)
+
+    result = listed(
+        session,
+        status=Status.TODO,
+        has_due_date=True,
+        sort_by=services.SortBy.DUE_DATE,
+        order=services.SortOrder.DESC,
+    )
+
+    assert result == ["later", "late"]

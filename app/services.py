@@ -2,7 +2,10 @@
 
 import logging
 from collections.abc import Callable
+from datetime import date
+from enum import StrEnum
 
+from sqlalchemy import case
 from sqlmodel import Session, col, select
 
 from app import search
@@ -10,6 +13,18 @@ from app.models import Priority, Status, Task
 from app.schemas import TaskCreate, TaskUpdate
 
 logger = logging.getLogger(__name__)
+
+
+class SortBy(StrEnum):
+    ID = "id"
+    DUE_DATE = "due_date"
+    PRIORITY = "priority"
+    CREATED_AT = "created_at"
+
+
+class SortOrder(StrEnum):
+    ASC = "asc"  # soonest due, oldest created, lowest priority first
+    DESC = "desc"  # latest due, newest created, highest priority first
 
 
 def _sync_index(action: Callable[..., None], *args: object) -> None:
@@ -41,14 +56,54 @@ def get_task(session: Session, task_id: int) -> Task | None:
 
 
 def list_tasks(
-    session: Session, status: Status | None = None, priority: Priority | None = None
+    session: Session,
+    status: Status | None = None,
+    priority: Priority | None = None,
+    *,
+    due_before: date | None = None,
+    due_after: date | None = None,
+    overdue: bool = False,
+    has_due_date: bool | None = None,
+    sort_by: SortBy = SortBy.ID,
+    order: SortOrder = SortOrder.ASC,
 ) -> list[Task]:
-    statement = select(Task).order_by(col(Task.id))
+    """Filter and sort in SQL. due_before and due_after are inclusive; overdue skips done tasks.
+
+    Tasks without a due date come last when sorting by due date, in both directions. Priority is
+    sorted by meaning (low < medium < high), not alphabetically. Ties fall back to id.
+    """
+    statement = select(Task)
     if status is not None:
         statement = statement.where(Task.status == status)
     if priority is not None:
         statement = statement.where(Task.priority == priority)
-    return list(session.exec(statement).all())
+    if due_before is not None:
+        statement = statement.where(col(Task.due_date) <= due_before)
+    if due_after is not None:
+        statement = statement.where(col(Task.due_date) >= due_after)
+    if overdue:
+        statement = statement.where(col(Task.due_date) < date.today(), Task.status != Status.DONE)
+    if has_due_date is not None:
+        no_date = col(Task.due_date).is_(None)
+        statement = statement.where(~no_date if has_due_date else no_date)
+
+    descending = order == SortOrder.DESC
+    if sort_by == SortBy.DUE_DATE:
+        due = col(Task.due_date)
+        statement = statement.order_by(due.is_(None), due.desc() if descending else due.asc())
+    elif sort_by == SortBy.PRIORITY:
+        rank = case(
+            (col(Task.priority) == Priority.HIGH, 3),
+            (col(Task.priority) == Priority.MEDIUM, 2),
+            else_=1,
+        )
+        statement = statement.order_by(rank.desc() if descending else rank.asc())
+    elif sort_by == SortBy.CREATED_AT:
+        created = col(Task.created_at)
+        statement = statement.order_by(created.desc() if descending else created.asc())
+    elif descending:
+        statement = statement.order_by(col(Task.id).desc())
+    return list(session.exec(statement.order_by(col(Task.id))).all())
 
 
 def update_task(session: Session, task_id: int, data: TaskUpdate) -> Task | None:

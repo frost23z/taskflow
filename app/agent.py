@@ -23,6 +23,9 @@ Rules:
   from a candidate list a tool returned earlier.
 - When a tool returns several candidate tasks, do not act. Ask the user which one they mean.
 - To mark a task done, use update_task with status=done.
+- To filter or sort tasks, use list_tasks: "overdue" -> overdue=true; "due this week" or "by Friday"
+  -> due_before (and due_after); "sorted by due date" -> sort_by=due_date; "highest priority
+  first" -> sort_by=priority, order=desc. Use search_tasks only to find tasks by topic.
 - Deleting needs confirmation: after delete_task asks, ask the user, and call delete_task again
   only after the user has confirmed in their next message.
 - Never say an action succeeded unless a tool result said so. If a tool returned an error or

@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 import pytest
@@ -99,6 +99,59 @@ def test_list_tasks_filters_and_reports_empty(env: Session) -> None:
     assert "Write report" not in call(tools.list_tasks, status="todo")
     assert call(tools.list_tasks, priority="low") == "No tasks found."
     assert call(tools.list_tasks, status="later").startswith("Error: status must be one of")
+
+
+def test_list_tasks_filters_by_dates_and_overdue(env: Session) -> None:
+    today = date.today()
+    new_task(env, "Old", due_date=today - timedelta(days=2))
+    new_task(env, "Old done", status=Status.DONE, due_date=today - timedelta(days=2))
+    new_task(env, "Soon", due_date=today + timedelta(days=2))
+    new_task(env, "Whenever")
+
+    overdue = call(tools.list_tasks, overdue=True)
+    assert "Old" in overdue and "Old done" not in overdue and "Soon" not in overdue
+
+    by_friday = call(tools.list_tasks, due_before=(today + timedelta(days=2)).isoformat())
+    assert "Soon" in by_friday and "Whenever" not in by_friday
+
+    after = call(tools.list_tasks, due_after=today.isoformat())
+    assert "Soon" in after and "Old" not in after
+
+    assert call(tools.list_tasks, has_due_date=False).count("[") == 1
+    assert "Whenever" in call(tools.list_tasks, has_due_date=False)
+
+
+def test_list_tasks_sorts(env: Session) -> None:
+    today = date.today()
+    new_task(env, "Low later", priority=Priority.LOW, due_date=today + timedelta(days=9))
+    new_task(env, "High soon", priority=Priority.HIGH, due_date=today + timedelta(days=1))
+    new_task(env, "Medium undated")
+
+    def order(**args: Any) -> list[str]:
+        lines = call(tools.list_tasks, **args).splitlines()
+        return [line.split("] ", 1)[1].split(" (")[0] for line in lines]
+
+    assert order(sort_by="due_date") == ["High soon", "Low later", "Medium undated"]
+    assert order(sort_by="due_date", order="desc") == ["Low later", "High soon", "Medium undated"]
+    assert order(sort_by="priority", order="desc") == ["High soon", "Medium undated", "Low later"]
+    assert order(sort_by="PRIORITY", order="ASC")[0] == "Low later"  # case-insensitive
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        ({"due_before": "next friday"}, "Error: due_before must be an ISO date"),
+        ({"due_after": "2026-13-45"}, "Error: due_after must be an ISO date"),
+        ({"sort_by": "title"}, "Error: sort_by must be one of: id, due_date, priority, created_at"),
+        ({"order": "up"}, "Error: order must be one of: asc, desc"),
+    ],
+)
+def test_list_tasks_rejects_bad_filter_and_sort_input(
+    env: Session, args: dict[str, str], expected: str
+) -> None:
+    new_task(env, "Anything")
+
+    assert call(tools.list_tasks, **args).startswith(expected)
 
 
 def test_search_tasks_respects_include_done_and_minimum_similarity(env: Session) -> None:
