@@ -344,3 +344,10 @@ def test_a_failing_clear_returns_a_plain_error(
     assert response.status_code == 500
     assert "Could not clear" in response.json()["error"]
     assert "secret" not in response.text
+
+
+def test_commands_endpoint_lists_the_picker_entries(client: TestClient) -> None:
+    body = client.get("/api/commands").json()
+
+    assert [command["name"] for command in body] == ["clear"]
+    assert body[0]["summary"]

@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, StringConstraints
 from sqlmodel import Session
 
 from app import chat as chat_history
-from app import services
+from app import commands, services
 from app.agent import run_agent
 from app.database import engine, get_session, init_db
 from app.llm import LLMConfigError
@@ -45,6 +45,11 @@ class ChatRequest(BaseModel):
     session_id: str = Field(min_length=1, max_length=64)
 
 
+class CommandRead(BaseModel):
+    name: str
+    summary: str
+
+
 class ChatResponse(BaseModel):
     reply: str
     tasks: list[TaskRead]
@@ -57,6 +62,12 @@ def chat_history_endpoint(session_id: SessionId, session: SessionDep) -> list[Ch
         ChatMessageRead.model_validate(message)
         for message in chat_history.list_history(session, session_id)
     ]
+
+
+@app.get("/api/commands")
+def list_commands() -> list[CommandRead]:
+    """The slash commands the chat box offers."""
+    return [CommandRead(name=command.name, summary=command.summary) for command in commands.COMMANDS]
 
 
 @app.get("/api/tasks")
