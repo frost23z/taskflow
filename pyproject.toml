@@ -18,6 +18,7 @@ dependencies = [
 dev = [
     "pyrefly>=1.4.0",
     "pytest>=9.1.1",
+    "pytest-playwright>=0.10.0",
     "ruff>=0.17.3",
 ]
 

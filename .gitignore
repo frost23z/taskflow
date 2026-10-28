@@ -14,3 +14,6 @@ wheels/
 
 # Local SQLite databases
 data/
+
+# Demo recordings
+demo/output/
