@@ -5,12 +5,14 @@ Safety rules enforced here in code, not left to the prompt:
   "not found", several close matches mean a clarification question, one clear match means act.
 - A `task_id` is accepted only if it was in a candidate list shown to the same session earlier.
 - delete needs confirmation: the first call only records a pending delete, and it runs only when
-  called again in the very next user turn.
+  called again in the very next user turn AND that user message is a clear yes (checked here, by
+  `is_confirmation`, not by the model).
 - session_id comes from the run context (ToolRuntime), never from a model-filled argument.
 - Tools return strings, including for errors, and never raise to the model.
 """
 
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -34,6 +36,7 @@ MIN_SIMILARITY = 0.30  # below this a task does not count as a match at all
 AMBIGUITY_MARGIN = 0.05  # matches within this of the best one are all plausible: ask the user
 MAX_CANDIDATES = 5  # most candidates shown in a clarification question
 MAX_LISTED = 50  # most tasks list_tasks prints
+SEARCH_LIMIT = 10  # most tasks search_tasks prints; the reply says when more matched
 
 
 # --- Run context and per-session state ---------------------------------------------------------
@@ -55,6 +58,7 @@ class PendingDelete:
 @dataclass
 class SessionState:
     turn: int = 0
+    confirmed: bool = False  # the latest user message was a clear "yes" (see is_confirmation)
     candidate_ids: set[int] = field(default_factory=set)
     pending_delete: PendingDelete | None = None
 
@@ -66,10 +70,32 @@ def get_state(session_id: str) -> SessionState:
     return _sessions.setdefault(session_id, SessionState())
 
 
-def next_turn(session_id: str) -> int:
+_YES = re.compile(
+    r"\b(yes|y|yep|yeah|yup|sure|ok|okay|confirm|confirmed|proceed|go ahead|do it|delete it)\b"
+)
+_NO = re.compile(
+    r"\b(no|nope|nah|not|never|cancel|stop|wait|abort|nevermind|never mind|do not)\b|n['’]t\b"
+)
+MAX_CONFIRMATION_LENGTH = 80  # a long message is an instruction, not a reply to "delete it?"
+
+
+def is_confirmation(message: str) -> bool:
+    """True only for a short, clear yes. Questions, negations and long messages never count.
+
+    Deleting is irreversible, so this errs on the side of asking again: "are you sure?", "yes
+    but don't", and "no" all return False.
+    """
+    text = message.strip().lower()
+    if not text or len(text) > MAX_CONFIRMATION_LENGTH or "?" in text:
+        return False
+    return bool(_YES.search(text)) and not _NO.search(text)
+
+
+def next_turn(session_id: str, message: str = "") -> int:
     """Start a new user turn for this session. run_agent calls this once per message."""
     state = get_state(session_id)
     state.turn += 1
+    state.confirmed = is_confirmation(message)
     return state.turn
 
 
@@ -270,11 +296,20 @@ def search_tasks(query: str, include_done: bool = True) -> str:
     if not query.strip():
         raise ToolInputError("query must not be empty")
     with _open_session() as session:
-        found = services.find_tasks(session, query, include_done=include_done, limit=MAX_CANDIDATES)
+        # One extra, so the reply can say when the list was cut short.
+        found = services.find_tasks(
+            session, query, include_done=include_done, limit=SEARCH_LIMIT + 1
+        )
         matches = [(task, score) for task, score in found if score >= MIN_SIMILARITY]
         if not matches:
             return f"No tasks match {query!r}."
-        return "\n".join(f"{_line(task)} - match {score:.2f}" for task, score in matches)
+        lines = [f"{_line(task)} - match {score:.2f}" for task, score in matches[:SEARCH_LIMIT]]
+        if len(matches) > SEARCH_LIMIT:
+            lines.append(
+                f"... more tasks match; these are the best {SEARCH_LIMIT}. "
+                "Tell the user the list is not complete and suggest a narrower search."
+            )
+        return "\n".join(lines)
 
 
 @tool
@@ -367,6 +402,12 @@ def delete_task(
                 )
             if pending.turn + 1 == state.turn:
                 state.pending_delete = None
+                if not state.confirmed:
+                    return (
+                        f"Not confirmed: the user's reply was not a clear yes, so {_line(task)} "
+                        "was NOT deleted. Tell the user it was kept. Ask again only if they "
+                        "still want it deleted."
+                    )
                 if services.delete_task(session, task.id):
                     return f"Deleted task [{task.id}] {task.title}"
                 return f"Not found: task {task.id} no longer exists."

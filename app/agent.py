@@ -75,7 +75,7 @@ def run_agent(message: str, session_id: str, model: BaseChatModel | None = None)
     survive the whole fallback chain are raised to the caller.
     """
     agent = _get_agent(model)
-    tools.next_turn(session_id)
+    tools.next_turn(session_id, message)
     result = agent.invoke(
         {"messages": [HumanMessage(message)]},
         config={"configurable": {"thread_id": session_id}},

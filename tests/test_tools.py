@@ -198,6 +198,30 @@ def test_update_can_clear_a_due_date_and_rejects_empty_changes(env: Session) -> 
     assert task is not None and task.due_date is None
 
 
+# --- search limit -----------------------------------------------------------------------------
+
+
+def test_search_tasks_says_when_the_list_is_cut_short(env: Session) -> None:
+    for number in range(tools.SEARCH_LIMIT + 2):
+        new_task(env, f"docs page {number}")
+
+    result = call(tools.search_tasks, query="docs")
+
+    lines = result.splitlines()
+    assert len(lines) == tools.SEARCH_LIMIT + 1
+    assert "not complete" in lines[-1]
+
+
+def test_search_tasks_has_no_cut_off_note_when_everything_fits(env: Session) -> None:
+    new_task(env, "docs page one")
+    new_task(env, "docs page two")
+
+    result = call(tools.search_tasks, query="docs")
+
+    assert len(result.splitlines()) == 2
+    assert "not complete" not in result
+
+
 # --- delete confirmation ------------------------------------------------------------------------
 
 
@@ -218,7 +242,7 @@ def test_delete_runs_when_called_again_in_the_next_turn(env: Session) -> None:
     tools.next_turn(SID)
     call(tools.delete_task, target="pay rent")
 
-    tools.next_turn(SID)  # the user confirmed
+    tools.next_turn(SID, "yes")  # the user confirmed
     result = call(tools.delete_task, target="pay rent")
 
     assert result.startswith("Deleted task")
@@ -231,10 +255,64 @@ def test_delete_confirmation_works_with_the_task_id_from_the_question(env: Sessi
     tools.next_turn(SID)
     call(tools.delete_task, target="pay rent")
 
-    tools.next_turn(SID)
+    tools.next_turn(SID, "yes please")
     result = call(tools.delete_task, target="that task", task_id=task_id)
 
     assert result.startswith("Deleted task")
+
+
+@pytest.mark.parametrize(
+    "reply", ["no", "nope", "cancel", "keep it", "are you sure?", "yes but don't", "not sure", ""]
+)
+def test_delete_is_not_run_when_the_users_reply_is_not_a_clear_yes(
+    env: Session, reply: str
+) -> None:
+    task_id = new_task(env, "Pay rent")
+    tools.next_turn(SID, "delete the rent task")
+    call(tools.delete_task, target="pay rent")
+
+    tools.next_turn(SID, reply)  # the model calls delete_task again anyway
+    result = call(tools.delete_task, target="pay rent")
+
+    assert result.startswith("Not confirmed")
+    env.expire_all()
+    assert services.get_task(env, task_id) is not None
+    assert tools.get_state(SID).pending_delete is None
+
+
+def test_a_refused_delete_needs_a_fresh_confirmation_later(env: Session) -> None:
+    task_id = new_task(env, "Pay rent")
+    tools.next_turn(SID, "delete the rent task")
+    call(tools.delete_task, target="pay rent")
+    tools.next_turn(SID, "no")
+    call(tools.delete_task, target="pay rent")
+
+    tools.next_turn(SID, "yes")  # a late yes does not revive the old request
+    result = call(tools.delete_task, target="pay rent")
+
+    assert "Confirmation needed" in result
+    assert services.get_task(env, task_id) is not None
+
+
+@pytest.mark.parametrize(
+    ("message", "expected"),
+    [
+        ("yes", True),
+        ("Yes, please delete it", True),
+        ("Y", True),
+        ("ok", True),
+        ("go ahead", True),
+        ("yes and also mark the passport task as done", True),
+        ("no", False),
+        ("yes, I'd say no", False),
+        ("yes but don\u2019t", False),
+        ("are you sure?", False),
+        ("the video one", False),
+        ("yes " + "x" * 80, False),
+    ],
+)
+def test_is_confirmation(message: str, expected: bool) -> None:
+    assert tools.is_confirmation(message) is expected
 
 
 def test_a_stale_pending_delete_does_not_authorise_a_later_delete(env: Session) -> None:
@@ -256,7 +334,7 @@ def test_confirming_a_different_task_does_not_delete_it(env: Session) -> None:
     tools.next_turn(SID)
     call(tools.delete_task, target="pay rent")
 
-    tools.next_turn(SID)
+    tools.next_turn(SID, "yes")
     result = call(tools.delete_task, target="buy groceries")
 
     assert "Confirmation needed" in result
