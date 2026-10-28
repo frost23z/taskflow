@@ -190,6 +190,14 @@ SEED_TASKS: list[tuple[str, str, Status, Priority, int | None]] = [
     ("Clean out the garage", "Donate old furniture and sort the boxes of cables.", TODO, LOW, None),
 ]
 
+
+def _days_to_friday() -> int:
+    """Days until the coming Friday, at least two, so the board shows 'Friday' (or a later weekday)
+    rather than 'Today' or 'Tomorrow'."""
+    days = (4 - date.today().weekday()) % 7
+    return days if days >= 2 else days + 7
+
+
 # A small board for demos and screen recordings: the six tasks of the assignment's UI reference.
 # It fits on screen without scrolling, so every change the chat makes is visible.
 DEMO_TASKS: list[tuple[str, str, Status, Priority, int | None]] = [
@@ -212,7 +220,7 @@ DEMO_TASKS: list[tuple[str, str, Status, Priority, int | None]] = [
         "Email the team a short summary of progress and blockers.",
         TODO,
         HIGH,
-        3,
+        _days_to_friday(),
     ),
     (
         "Update API documentation",

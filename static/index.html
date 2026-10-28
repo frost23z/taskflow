@@ -96,26 +96,38 @@
 
             <form
               id="chat-form"
-              class="mt-2 shrink-0 rounded-2xl border-[3px] border-inputborder bg-white px-4 pb-3 pt-3 focus-within:border-send sm:px-5 sm:pb-4 sm:pt-4 lg:short:pb-2.5 lg:short:pt-2.5"
+              class="relative mt-2 shrink-0 rounded-2xl border-[3px] border-inputborder bg-white px-4 pb-3 pt-3 focus-within:border-send sm:px-5 sm:pb-4 sm:pt-4 lg:short:pb-2.5 lg:short:pt-2.5"
             >
               <label
                 for="chat-input"
                 class="block text-xs font-extrabold tracking-wide text-label sm:text-sm"
                 >Your instruction</label
               >
-              <input
+              <div
+                id="slash-menu"
+                role="listbox"
+                aria-label="Tools"
+                hidden
+                class="thin-scroll absolute inset-x-0 bottom-full z-20 mb-2 max-h-72 overflow-y-auto rounded-2xl border-2 border-panelborder bg-white p-1.5 shadow-lg"
+              ></div>
+              <textarea
                 id="chat-input"
-                type="text"
+                rows="1"
                 maxlength="1000"
                 autocomplete="off"
-                placeholder="Type a task instruction…"
-                class="mt-1.5 w-full border-0 bg-transparent p-0 text-base text-ink placeholder:text-placeholder focus:outline-none disabled:opacity-60 sm:text-lg"
-              />
+                role="combobox"
+                aria-expanded="false"
+                aria-controls="slash-menu"
+                aria-autocomplete="list"
+                placeholder="Type an instruction, or / to pick a tool…"
+                class="thin-scroll mt-1.5 block w-full resize-none overflow-y-auto border-0 bg-transparent p-0 text-base leading-6 text-ink placeholder:text-placeholder focus:outline-none disabled:opacity-60 sm:text-lg sm:leading-7"
+              ></textarea>
               <div class="mt-2 flex items-end justify-between gap-3">
                 <p
+                  id="hint"
                   class="min-w-0 flex-1 text-xs leading-tight text-hint sm:text-sm"
                 >
-                  e.g. Complete the weekly report
+                  Type / for commands · Enter to send · Shift+Enter for a new line
                 </p>
                 <button
                   id="send-btn"
@@ -141,6 +153,10 @@
       const chatLog = $("chat-log");
       const chatInput = $("chat-input");
       const sendBtn = $("send-btn");
+      const slashMenu = $("slash-menu");
+      const hintEl = $("hint");
+      const DEFAULT_HINT = hintEl.textContent.replace(/\s+/g, " ").trim();
+      const MAX_INPUT_LINES = 3;
 
       let currentTasks = [];
 
@@ -227,13 +243,13 @@
         return `<span class="${size} bg-circle" role="img" aria-label="To do"></span>`;
       }
 
-      function taskRow(task) {
+      function taskRow(task, flash = false) {
         const done = task.status === "done";
         const pr = PRIORITY[task.priority] ?? PRIORITY.medium;
         const status = STATUS_LABEL[task.status] ?? task.status;
         const overdue = dueLabel(task) === "Overdue";
         // Rows adapt to the list's own width (container queries), not the window's.
-        return `<li class="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-2xl border border-rowborder bg-rowbg px-4 py-3.5 @md:grid-cols-[auto_minmax(0,1fr)_auto] @md:gap-x-4 @md:px-5 @md:py-4 lg:short:py-2.5!">
+        return `<li data-task-id="${task.id}" class="${flash ? "row-flash " : ""}grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-2xl border border-rowborder bg-rowbg px-4 py-3.5 @md:grid-cols-[auto_minmax(0,1fr)_auto] @md:gap-x-4 @md:px-5 @md:py-4 lg:short:py-2.5!">
           ${marker(task.status)}
           <div class="min-w-0">
             <p class="break-words text-base font-extrabold leading-snug @md:text-lg ${done ? "text-donetext" : "text-ink"}">${esc(task.title)}</p>
@@ -243,16 +259,39 @@
         </li>`;
       }
 
-      // The one place the board is drawn. Open tasks first, done tasks last.
-      function renderTasks(tasks) {
+      // The one place the board is drawn. Open tasks first, done tasks last. With highlight, rows
+      // that are new or changed since the last render flash, and the first one is scrolled into view
+      // (inside the list only), so a change is visible even when the board is long.
+      function renderTasks(tasks, { highlight = false } = {}) {
+        const before = new Map(currentTasks.map((t) => [t.id, t.updated_at]));
+        const changed = new Set(
+          highlight
+            ? tasks
+                .filter((t) => before.get(t.id) !== t.updated_at)
+                .map((t) => t.id)
+            : [],
+        );
         currentTasks = tasks;
         const ordered = [...tasks].sort(
           (a, b) => (a.status === "done") - (b.status === "done"),
         );
         taskCount.textContent = String(tasks.length);
         taskList.innerHTML = ordered.length
-          ? ordered.map(taskRow).join("")
+          ? ordered.map((t) => taskRow(t, changed.has(t.id))).join("")
           : `<li class="rounded-2xl border border-dashed border-rowborder bg-rowbg px-5 py-8 text-center text-muted">No tasks yet. Ask the assistant to add one.</li>`;
+        if (changed.size) scrollToChanged();
+      }
+
+      function scrollToChanged() {
+        const row = taskList.querySelector(".row-flash");
+        if (!row) return;
+        const list = taskList.getBoundingClientRect();
+        const box = row.getBoundingClientRect();
+        if (box.top < list.top || box.bottom > list.bottom)
+          taskList.scrollBy({
+            top: box.top - list.top - 8,
+            behavior: "smooth",
+          });
       }
 
       // Escape first, then turn **bold** into <strong>. Escaped text has no tags left to abuse.
@@ -264,7 +303,7 @@
       }
 
       function showBoard() {
-        taskList.scrollTo?.({ top: 0, behavior: "smooth" });
+        scrollToChanged();
         boardCard.scrollIntoView({ behavior: "smooth", block: "nearest" });
         boardCard.classList.add("shadow-[0_0_0_4px_#779ce366]");
         setTimeout(
@@ -305,9 +344,9 @@
       }
 
       const SUGGESTIONS = [
-        "Add a task: Call the dentist",
-        "Mark Meeting at 10 as done",
-        "What is due today?",
+        "Create a high-priority task to finish the demo tomorrow",
+        "Show all unfinished tasks related to documentation",
+        "Mark the weekly report as done",
       ];
       chipsEl.innerHTML = SUGGESTIONS.map(
         (s) =>
@@ -317,7 +356,121 @@
         const chip = event.target.closest("[data-chip]");
         if (!chip || sendBtn.disabled) return;
         chatInput.value = chip.textContent;
+        autosize();
         chatInput.focus();
+      });
+
+      // The chat box grows with its text up to three lines, then scrolls inside itself.
+      function autosize() {
+        chatInput.style.height = "auto";
+        const lineHeight = parseFloat(getComputedStyle(chatInput).lineHeight);
+        const max = lineHeight * MAX_INPUT_LINES;
+        chatInput.style.height = `${Math.min(chatInput.scrollHeight, max)}px`;
+      }
+
+      // --- "/" command picker. The entries come from the server. ---
+      let commands = [];
+      let matches = [];
+      let active = 0;
+
+      async function loadCommands() {
+        try {
+          const res = await fetch("/api/commands");
+          if (!res.ok) throw new Error(String(res.status));
+          commands = await res.json();
+        } catch {
+          commands = []; // the picker is a convenience; chat works without it
+        }
+      }
+      loadCommands();
+
+      function menuOpen() {
+        return !slashMenu.hidden;
+      }
+
+      function closeMenu() {
+        slashMenu.hidden = true;
+        chatInput.setAttribute("aria-expanded", "false");
+        chatInput.removeAttribute("aria-activedescendant");
+      }
+
+      function renderMenu() {
+        slashMenu.innerHTML = matches
+          .map(
+            (c, i) =>
+              `<div id="cmd-${esc(c.name)}" role="option" data-index="${i}" aria-selected="${i === active}" class="flex cursor-pointer items-baseline gap-3 rounded-xl px-3.5 py-2.5 ${i === active ? "bg-aihead" : "hover:bg-panel"}"><span class="shrink-0 font-extrabold text-send">/${esc(c.name)}</span><span class="min-w-0 truncate text-sm text-muted">${esc(c.summary)}</span></div>`,
+          )
+          .join("");
+        chatInput.setAttribute("aria-activedescendant", `cmd-${matches[active].name}`);
+        slashMenu.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: "nearest" });
+      }
+
+      // Open while the text is just "/" and the start of a command name, e.g. "/", "/cl".
+      function updateMenu() {
+        const typed = /^\/([a-z]*)$/i.exec(chatInput.value);
+        matches = typed
+          ? commands.filter((c) => c.name.startsWith(typed[1].toLowerCase()))
+          : [];
+        if (!matches.length) return closeMenu();
+        active = Math.min(active, matches.length - 1);
+        slashMenu.hidden = false;
+        chatInput.setAttribute("aria-expanded", "true");
+        renderMenu();
+      }
+
+      function chooseCommand(command) {
+        chatInput.value = `/${command.name}`;
+        closeMenu();
+        autosize();
+        updateHint();
+        chatInput.focus();
+      }
+
+      // Once /clear is chosen, the hint under the box says what Send will do.
+      function updateHint() {
+        const clear = /^\/clear$/i.test(chatInput.value.trim());
+        hintEl.textContent = clear
+          ? "Press Send to clear this chat. Your tasks stay."
+          : DEFAULT_HINT;
+      }
+
+      slashMenu.addEventListener("mousedown", (event) => {
+        event.preventDefault(); // keep the focus in the text box
+        const option = event.target.closest("[data-index]");
+        if (option) chooseCommand(matches[Number(option.dataset.index)]);
+      });
+
+      chatInput.addEventListener("input", () => {
+        active = 0;
+        autosize();
+        updateMenu();
+        updateHint();
+      });
+      chatInput.addEventListener("blur", closeMenu);
+
+      chatInput.addEventListener("keydown", (event) => {
+        if (event.isComposing) return; // an input method is still choosing characters
+        if (menuOpen()) {
+          const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
+          if (step) {
+            event.preventDefault();
+            active = (active + step + matches.length) % matches.length;
+            return renderMenu();
+          }
+          if (event.key === "Enter" || event.key === "Tab") {
+            event.preventDefault();
+            return chooseCommand(matches[active]);
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            return closeMenu();
+          }
+        }
+        // Enter sends, Shift+Enter adds a new line.
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          $("chat-form").requestSubmit();
+        }
       });
 
       function setBusy(busy) {
@@ -337,6 +490,9 @@
         const message = chatInput.value.trim();
         if (!message || sendBtn.disabled) return;
         chatInput.value = "";
+        closeMenu();
+        autosize();
+        updateHint();
         addBubble("user", message);
         setBusy(true);
         const thinking = addBubble("thinking", "Thinking…");
@@ -354,7 +510,7 @@
           }
           const changed =
             JSON.stringify(data.tasks) !== JSON.stringify(currentTasks);
-          renderTasks(data.tasks);
+          renderTasks(data.tasks, { highlight: true });
           if (data.cleared) chatLog.replaceChildren(); // after /clear
           addBubble("bot", data.reply, { link: changed && !data.cleared });
         } catch {

@@ -4,8 +4,9 @@
 @import "tailwindcss";
 @source "./index.html";
 
-/* Compact mode for short screens (small laptops): trims spacing so more fits. */
-@custom-variant short (@media (max-height: 760px));
+/* Compact mode for windows up to 1000px tall (most laptops and 1080p screens with browser bars):
+ * trims spacing so the board shows 7 to 8 tasks at once instead of 5 to 6. */
+@custom-variant short (@media (max-height: 1000px));
 
 /* Colors sampled from the reference image. */
 @theme {
@@ -57,7 +58,27 @@
   scrollbar-color: #c3d1e8 transparent;
 }
 
+/* A task the chat just created or changed flashes once, so it is easy to spot on the board. */
+@keyframes row-flash {
+  0%,
+  35% {
+    background-color: #e3edff;
+    box-shadow: 0 0 0 3px #779ce3;
+  }
+  100% {
+    background-color: var(--color-rowbg);
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+.row-flash {
+  animation: row-flash 2.6s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .row-flash {
+    animation: none;
+    box-shadow: 0 0 0 3px #779ce3;
+  }
   * {
     transition: none !important;
     scroll-behavior: auto !important;
