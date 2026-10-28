@@ -140,9 +140,17 @@ def test_index_serves_the_page(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/html")
     assert "TASKFLOW" in response.text and "renderTasks" in response.text
-    # Tailwind 4 Play CDN with a CSS-first theme, not the v3 CDN and its JS config.
-    assert "@tailwindcss/browser@4" in response.text
-    assert 'type="text/tailwindcss"' in response.text and "tailwind.config" not in response.text
+    # Styles come from a compiled stylesheet the app serves itself, not a CDN script.
+    assert 'href="/static/styles.css"' in response.text
+    assert "cdn." not in response.text
+
+
+def test_stylesheet_is_served(client: TestClient) -> None:
+    response = client.get("/static/styles.css")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/css")
+    assert "@container" in response.text  # the adaptive task rows made it into the build
 
 
 def test_fastapi_entrypoint_points_at_the_app_not_a_route_function() -> None:

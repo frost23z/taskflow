@@ -1,0 +1,16 @@
+{
+  "name": "taskflow-styles",
+  "private": true,
+  "description": "Build tooling for static/styles.css only. The app itself is Python.",
+  "scripts": {
+    "build": "tailwindcss -i static/input.css -o static/styles.css --minify",
+    "dev": "tailwindcss -i static/input.css -o static/styles.css --watch"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.3",
+    "tailwindcss": "^4.3.3"
+  },
+  "allowScripts": {
+    "@parcel/watcher@2.5.1": true
+  }
+}

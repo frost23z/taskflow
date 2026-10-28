@@ -8,6 +8,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, StringConstraints
 from sqlmodel import Session
 
@@ -34,6 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="TaskFlow", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 class ChatRequest(BaseModel):

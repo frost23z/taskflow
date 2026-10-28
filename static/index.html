@@ -4,73 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>TaskFlow – AI Task Manager</title>
-    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
-    <style type="text/tailwindcss">
-      /* Compact mode for short screens (small laptops): trims spacing so more fits. */
-      @custom-variant short (@media (max-height: 760px));
-
-      /* Colors sampled from the reference image. */
-      @theme {
-        --color-page: #f5f7fb;
-        --color-navy: #17294a;
-        --color-navysub: #bcd0ec;
-        --color-cardborder: #e1e7f0;
-        --color-boardborder: #e1e7ee;
-        --color-rowbg: #f9fbfe;
-        --color-rowborder: #e5eaf2;
-        --color-circle: #d8e4f5;
-        --color-ring: #9db1cf;
-        --color-donecircle: #d9f2e8;
-        --color-check: #238b61;
-        --color-pill: #eff4fc;
-        --color-pilltext: #385a92;
-        --color-ink: #1d2a42;
-        --color-heading: #17233b;
-        --color-muted: #748199;
-        --color-lead: #67758d;
-        --color-donetext: #8b98a9;
-        --color-highbg: #ffebe8;
-        --color-high: #b64a3c;
-        --color-medbg: #fff1d5;
-        --color-med: #976316;
-        --color-lowbg: #e2f3ed;
-        --color-low: #2b805c;
-        --color-panel: #f8faff;
-        --color-panelborder: #dce5f5;
-        --color-aihead: #e9f0fc;
-        --color-aititle: #193967;
-        --color-aisub: #71819a;
-        --color-userbubble: #e5ecfa;
-        --color-usertext: #233854;
-        --color-botborder: #dfe7f2;
-        --color-bottext: #24364d;
-        --color-link: #346ed0;
-        --color-inputborder: #779ce3;
-        --color-label: #5879b7;
-        --color-placeholder: #8996a9;
-        --color-hint: #9aa6b8;
-        --color-send: #315fc7;
-        --color-progress: #f2b84b;
-        --color-progressbg: #fff6e0;
-      }
-    </style>
-    <style>
-      .thin-scroll {
-        scrollbar-width: thin;
-        scrollbar-color: #c3d1e8 transparent;
-      }
-      @media (prefers-reduced-motion: reduce) {
-        * {
-          transition: none !important;
-          scroll-behavior: auto !important;
-        }
-      }
-    </style>
+    <link rel="stylesheet" href="/static/styles.css" />
   </head>
   <body class="bg-page font-sans text-ink antialiased">
     <!-- lg+: the shell is exactly one viewport tall, so only the task list and chat scroll. -->
     <div
-      class="mx-auto flex min-h-dvh max-w-[1520px] flex-col p-3 sm:p-5 lg:h-dvh lg:min-h-[560px] lg:p-6 xl:p-8 2xl:p-10 lg:short:p-3"
+      class="mx-auto flex min-h-dvh max-w-380 flex-col p-3 sm:p-5 lg:h-dvh lg:min-h-140 lg:p-6 xl:p-8 2xl:p-10 lg:short:p-3"
     >
       <div
         class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border-2 border-cardborder bg-white sm:rounded-[28px]"
@@ -146,7 +85,7 @@
 
             <div
               id="chat-log"
-              class="thin-scroll mt-2 flex h-[340px] min-h-[140px] flex-col gap-3 overflow-y-auto px-1 py-2 sm:h-[420px] lg:h-auto lg:flex-1"
+              class="thin-scroll mt-2 flex h-85 min-h-35 flex-col gap-3 overflow-y-auto px-1 py-2 sm:h-105 lg:h-auto lg:flex-1"
               aria-live="polite"
             ></div>
 
