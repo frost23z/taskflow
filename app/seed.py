@@ -1,5 +1,6 @@
-"""Demo data: `uv run python -m app.seed` creates the tables and fills them if empty."""
+"""Demo data: `uv run python -m app.seed [--demo]` creates the tables and fills them if empty."""
 
+import argparse
 from datetime import date, timedelta
 
 from sqlmodel import Session, select
@@ -189,16 +190,67 @@ SEED_TASKS: list[tuple[str, str, Status, Priority, int | None]] = [
     ("Clean out the garage", "Donate old furniture and sort the boxes of cables.", TODO, LOW, None),
 ]
 
+# A small board for demos and screen recordings: the six tasks of the assignment's UI reference.
+# It fits on screen without scrolling, so every change the chat makes is visible.
+DEMO_TASKS: list[tuple[str, str, Status, Priority, int | None]] = [
+    (
+        "Finish AI presentation",
+        "Polish the slides and rehearse the talk for Thursday's review.",
+        TODO,
+        HIGH,
+        1,
+    ),
+    (
+        "Review pull request #82",
+        "Check the new login endpoint and leave comments before merging.",
+        DOING,
+        MEDIUM,
+        0,
+    ),
+    (
+        "Send weekly report",
+        "Email the team a short summary of progress and blockers.",
+        TODO,
+        HIGH,
+        3,
+    ),
+    (
+        "Update API documentation",
+        "Describe the new endpoints and examples in the developer docs.",
+        TODO,
+        MEDIUM,
+        8,
+    ),
+    (
+        "Set up database",
+        "Create the PostgreSQL schema and run the first migration.",
+        DONE,
+        MEDIUM,
+        None,
+    ),
+    (
+        "Write project README",
+        "Explain what the project does and how to install and run it.",
+        DONE,
+        LOW,
+        None,
+    ),
+]
 
-def seed(session: Session) -> int:
+
+def seed(
+    session: Session, tasks: list[tuple[str, str, Status, Priority, int | None]] | None = None
+) -> int:
     """Insert the demo tasks if the table is empty, then sync the search index.
 
+    `tasks` defaults to SEED_TASKS (24 varied tasks); pass DEMO_TASKS for the small demo board.
     Returns the number of tasks inserted.
     """
+    tasks = SEED_TASKS if tasks is None else tasks
     inserted = 0
     if session.exec(select(Task).limit(1)).first() is None:
         today = date.today()
-        for title, description, status, priority, days in SEED_TASKS:
+        for title, description, status, priority, days in tasks:
             due_date = None if days is None else today + timedelta(days=days)
             data = TaskCreate(
                 title=title,
@@ -209,15 +261,22 @@ def seed(session: Session) -> int:
             )
             session.add(Task.model_validate(data))
         session.commit()
-        inserted = len(SEED_TASKS)
+        inserted = len(tasks)
     reindex_all(session)
     return inserted
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Fill an empty TaskFlow database with demo tasks.")
+    parser.add_argument(
+        "--demo",
+        action="store_true",
+        help=f"insert the {len(DEMO_TASKS)}-task demo board instead of the {len(SEED_TASKS)} tasks",
+    )
+    args = parser.parse_args()
     init_db()
     with Session(engine) as session:
-        inserted = seed(session)
+        inserted = seed(session, DEMO_TASKS if args.demo else None)
     print(f"Seeded {inserted} tasks." if inserted else "Tasks already exist; index synced.")
 
 
