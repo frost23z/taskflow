@@ -355,7 +355,8 @@
           const changed =
             JSON.stringify(data.tasks) !== JSON.stringify(currentTasks);
           renderTasks(data.tasks);
-          addBubble("bot", data.reply, { link: changed });
+          if (data.cleared) chatLog.replaceChildren(); // after /clear
+          addBubble("bot", data.reply, { link: changed && !data.cleared });
         } catch {
           thinking.remove();
           addBubble(

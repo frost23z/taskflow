@@ -2,9 +2,11 @@
 
 from sqlmodel import Session, col, delete, select
 
+from app import agent, tools
 from app.models import ChatMessage
 
 HISTORY_LIMIT = 200  # most recent messages sent to the browser
+CLEAR_COMMAND = "/clear"
 
 
 def save_exchange(session: Session, session_id: str, user_message: str, reply: str) -> None:
@@ -27,3 +29,14 @@ def list_history(session: Session, session_id: str) -> list[ChatMessage]:
 def delete_history(session: Session, session_id: str) -> None:
     session.exec(delete(ChatMessage).where(col(ChatMessage.session_id) == session_id))
     session.commit()
+
+
+def clear_session(session: Session, session_id: str) -> None:
+    """Forget a conversation completely: the visible chat, the agent's memory and the tools' state.
+
+    Tasks are never touched. Clearing the tools' state also drops any pending delete, so an old
+    "yes" cannot confirm anything afterwards.
+    """
+    delete_history(session, session_id)
+    agent.clear_thread(session_id)
+    tools.clear_state(session, session_id)

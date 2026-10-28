@@ -48,6 +48,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     tasks: list[TaskRead]
+    cleared: bool = False  # true after /clear: the page empties its chat log
 
 
 @app.get("/api/chat/history")
@@ -67,9 +68,25 @@ def list_tasks(session: SessionDep) -> list[TaskRead]:
 @app.post(
     "/api/chat",
     response_model=ChatResponse,
-    responses={502: {"description": "The agent failed"}},
+    responses={
+        500: {"description": "/clear failed"},
+        502: {"description": "The agent failed"},
+    },
 )
 def chat(body: ChatRequest, session: SessionDep) -> ChatResponse | JSONResponse:
+    if body.message.lower() == chat_history.CLEAR_COMMAND:
+        # Handled here, before the model: it is deterministic and costs no tokens.
+        try:
+            chat_history.clear_session(session, body.session_id)
+        except Exception:
+            logger.exception("Could not clear the chat")
+            return JSONResponse(
+                status_code=500, content={"error": "Could not clear the chat. Please try again."}
+            )
+        tasks = [TaskRead.model_validate(task) for task in services.list_tasks(session)]
+        return ChatResponse(
+            reply="Chat cleared. Your tasks were not touched.", tasks=tasks, cleared=True
+        )
     try:
         reply = run_agent(body.message, body.session_id)
     except LLMConfigError as exc:

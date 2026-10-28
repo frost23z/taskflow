@@ -7,13 +7,14 @@ from typing import Any
 import pytest
 from chromadb.api.models.Collection import Collection
 from fastapi.testclient import TestClient
+from sqlalchemy.engine import Engine
 from sqlmodel import Session, create_engine
 
+from app import agent, database, main, services, tools
 from app import chat as chat_history
-from app import database, main, services
 from app.database import get_session
 from app.llm import LLMConfigError
-from app.models import Priority, Status
+from app.models import ChatSessionState, Priority, Status
 from app.schemas import TaskCreate
 
 SID = "session-abc"
@@ -259,3 +260,87 @@ def test_history_returns_only_the_latest_messages(
 @pytest.mark.parametrize("params", [{}, {"session_id": ""}, {"session_id": "s" * 65}])
 def test_history_requires_a_valid_session_id(client: TestClient, params: dict[str, str]) -> None:
     assert client.get("/api/chat/history", params=params).status_code == 422
+
+
+# --- /clear -------------------------------------------------------------------------------------
+
+
+@pytest.fixture
+def no_agent(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Fails if the agent runs; records which sessions had their agent memory cleared."""
+    cleared: list[str] = []
+
+    def fail(*args: Any, **kwargs: Any) -> str:
+        raise AssertionError("/clear must not call the agent")
+
+    monkeypatch.setattr(main, "run_agent", fail)
+    monkeypatch.setattr(agent, "clear_thread", cleared.append)
+    return cleared
+
+
+@pytest.mark.parametrize("message", ["/clear", "  /CLEAR  ", "/Clear"])
+def test_clear_empties_the_chat_without_calling_the_agent(
+    client: TestClient, session: Session, no_agent: list[str], message: str
+) -> None:
+    chat_history.save_exchange(session, SID, "hello", "hi")
+    chat_history.save_exchange(session, "other-session", "keep", "me")
+    services.create_task(session, TaskCreate(title="Pay rent"))
+    session.add(ChatSessionState(session_id=SID, data="{}"))
+    session.commit()
+
+    response = client.post("/api/chat", json={"message": message, "session_id": SID})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["cleared"] is True
+    assert "Chat cleared" in body["reply"]
+    assert [t["title"] for t in body["tasks"]] == ["Pay rent"]  # tasks are never touched
+    assert history(client) == []  # and the reply itself is not stored
+    assert [m["content"] for m in history(client, "other-session")] == ["keep", "me"]
+    assert no_agent == [SID]  # the agent's memory was cleared for this session only
+    assert session.get(ChatSessionState, SID) is None
+
+
+def test_clear_drops_a_pending_delete(
+    client: TestClient, session: Session, no_agent: list[str]
+) -> None:
+    engine = session.get_bind()
+    assert isinstance(engine, Engine)
+    tools.set_engine(engine)  # tool state is saved to the test database, not the real one
+    try:
+        tools.get_state(SID).pending_delete = tools.PendingDelete(task_id=1, turn=1)
+        tools.save_state(SID)
+
+        client.post("/api/chat", json={"message": "/clear", "session_id": SID})
+
+        tools.reset_sessions()  # a restart: the state must not come back from the database
+        assert tools.get_state(SID).pending_delete is None
+    finally:
+        tools.set_engine(None)
+        tools.reset_sessions()
+
+
+def test_other_messages_are_not_commands(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main, "run_agent", lambda message, session_id, model=None: "ok")
+
+    for message in ["please /clear", "/clear everything", "clear"]:
+        body = client.post("/api/chat", json={"message": message, "session_id": SID}).json()
+        assert body["cleared"] is False
+        assert body["reply"] == "ok"
+
+
+def test_a_failing_clear_returns_a_plain_error(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(session: Session, session_id: str) -> None:
+        raise RuntimeError("secret internal detail")
+
+    monkeypatch.setattr(chat_history, "clear_session", broken)
+
+    response = client.post("/api/chat", json={"message": "/clear", "session_id": SID})
+
+    assert response.status_code == 500
+    assert "Could not clear" in response.json()["error"]
+    assert "secret" not in response.text
