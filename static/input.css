@@ -1,5 +1,5 @@
 /* Tailwind source. Regenerate the served stylesheet after changing classes in index.html:
- *   npm install && npm run build:css
+ *   npm install && npm run build   (or npm run dev to watch)
  */
 @import "tailwindcss";
 @source "./index.html";
