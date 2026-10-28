@@ -21,5 +21,3 @@ demo/output/
 # Node tooling (CSS build)
 node_modules/
 
-# TODO: Remove before submission
-static/styles.css
