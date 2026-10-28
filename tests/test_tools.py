@@ -9,7 +9,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session
 
 from app import services, tools
-from app.models import Priority, Status
+from app.models import ChatSessionState, Priority, Status
 from app.schemas import TaskCreate
 
 SID = "session-1"
@@ -422,3 +422,81 @@ def test_unexpected_failures_become_error_strings(env: Session) -> None:
     assert call(tools.list_tasks).startswith("Error:")
     assert call(tools.create_task, title="x").startswith("Error:")
     assert call(tools.update_task, target="pay rent", status="done").startswith("Error:")
+
+
+# --- session state survives a restart -----------------------------------------------------------
+
+
+def restart() -> None:
+    """What a server restart does to the tools: the in-memory state is gone."""
+    tools.reset_sessions()
+
+
+def test_offered_candidates_survive_a_restart(env: Session) -> None:
+    first = new_task(env, "Write demo script")
+    new_task(env, "Write demo slides")
+    tools.next_turn(SID, "delete the demo")
+    assert "Several tasks match" in call(tools.delete_task, target="write demo")
+    tools.save_state(SID)
+
+    restart()
+    tools.next_turn(SID, "the first one")
+    result = call(tools.delete_task, target="write demo", task_id=first)
+
+    assert result.startswith("Confirmation needed")  # the ID was still known as a candidate
+
+
+def test_a_pending_delete_survives_a_restart(env: Session) -> None:
+    new_task(env, "Pay rent")
+    tools.next_turn(SID, "delete the rent task")
+    assert call(tools.delete_task, target="rent").startswith("Confirmation needed")
+    tools.save_state(SID)
+
+    restart()
+    tools.next_turn(SID, "yes")
+
+    assert call(tools.delete_task, target="rent").startswith("Deleted task")
+    assert titles(env) == []
+
+
+def test_unsaved_state_is_lost_and_an_invented_id_is_still_rejected(env: Session) -> None:
+    task_id = new_task(env, "Pay rent")
+    tools.next_turn(SID, "hi")
+
+    restart()
+    result = call(tools.delete_task, target="rent", task_id=task_id)
+
+    assert result.startswith("Error: task_id")
+
+
+def test_saved_state_belongs_to_its_own_session(env: Session) -> None:
+    new_task(env, "Pay rent")
+    tools.next_turn("session-a", "delete the rent task")
+    call(tools.delete_task, session_id="session-a", target="rent")
+    tools.save_state("session-a")
+
+    restart()
+
+    assert tools.get_state("session-a").pending_delete is not None
+    assert tools.get_state("session-b").pending_delete is None
+    assert tools.get_state("session-b").turn == 0
+
+
+def test_clear_state_forgets_the_session_everywhere(env: Session) -> None:
+    new_task(env, "Pay rent")
+    tools.next_turn(SID, "delete the rent task")
+    call(tools.delete_task, target="rent")
+    tools.save_state(SID)
+
+    tools.clear_state(env, SID)
+    restart()
+
+    state = tools.get_state(SID)
+    assert (state.turn, state.pending_delete, state.candidate_ids) == (0, None, set())
+
+
+def test_unreadable_saved_state_starts_fresh_instead_of_failing(env: Session) -> None:
+    env.add(ChatSessionState(session_id=SID, data="not json"))
+    env.commit()
+
+    assert tools.get_state(SID).turn == 0

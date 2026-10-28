@@ -6,17 +6,18 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, StringConstraints
 from sqlmodel import Session
 
+from app import chat as chat_history
 from app import services
 from app.agent import run_agent
 from app.database import engine, get_session, init_db
 from app.llm import LLMConfigError
-from app.schemas import TaskRead
+from app.schemas import ChatMessageRead, TaskRead
 from app.search import reindex_all
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ logger = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 SessionDep = Annotated[Session, Depends(get_session)]
+SessionId = Annotated[str, Query(min_length=1, max_length=64)]
 
 
 @asynccontextmanager
@@ -46,6 +48,14 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     tasks: list[TaskRead]
+
+
+@app.get("/api/chat/history")
+def chat_history_endpoint(session_id: SessionId, session: SessionDep) -> list[ChatMessageRead]:
+    return [
+        ChatMessageRead.model_validate(message)
+        for message in chat_history.list_history(session, session_id)
+    ]
 
 
 @app.get("/api/tasks")
@@ -72,6 +82,7 @@ def chat(body: ChatRequest, session: SessionDep) -> ChatResponse | JSONResponse:
             status_code=502,
             content={"error": "The assistant is unavailable right now. Please try again shortly."},
         )
+    chat_history.save_exchange(session, body.session_id, body.message, reply)
     tasks = [TaskRead.model_validate(task) for task in services.list_tasks(session)]
     return ChatResponse(reply=reply, tasks=tasks)
 

@@ -13,9 +13,10 @@ import pytest
 from chromadb import Documents, EmbeddingFunction, Embeddings
 from chromadb.api.models.Collection import Collection
 from dotenv import load_dotenv
+from langgraph.checkpoint.memory import InMemorySaver
 from sqlmodel import Session, SQLModel, create_engine
 
-from app import search
+from app import agent, search
 from app.database import DATABASE_URL
 
 load_dotenv()
@@ -99,3 +100,11 @@ def fake_chroma() -> Iterator[Collection]:
     yield collection
     search.set_collection(None)
     client.delete_collection(collection.name)
+
+
+@pytest.fixture(autouse=True)
+def memory_checkpointer() -> Iterator[None]:
+    """Tests never write the agent's memory to data/checkpoints.db."""
+    agent.set_checkpointer(InMemorySaver())
+    yield
+    agent.set_checkpointer(None)

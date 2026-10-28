@@ -34,3 +34,9 @@ class TaskRead(TaskBase):
     id: int
     created_at: datetime
     updated_at: datetime
+
+
+class ChatMessageRead(SQLModel):
+    role: str
+    content: str
+    created_at: datetime

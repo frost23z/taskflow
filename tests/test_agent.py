@@ -1,5 +1,7 @@
+import sqlite3
 from collections.abc import Iterator
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -8,11 +10,12 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.utils.function_calling import convert_to_openai_tool
+from langgraph.checkpoint.sqlite import SqliteSaver
 from pydantic import ConfigDict
 from sqlalchemy.engine import Engine
 from sqlmodel import Session
 
-from app import services, tools
+from app import agent, services, tools
 from app.agent import build_system_prompt, run_agent
 from app.schemas import TaskCreate
 
@@ -143,3 +146,36 @@ def test_a_model_that_deletes_twice_in_one_turn_is_refused(env: Session) -> None
     env.expire_all()
     assert services.get_task(env, task_id) is not None
     assert "already waiting" in str(model.seen[-1][-1].content)
+
+
+def test_the_conversation_survives_a_restart(env: Session, tmp_path: Path) -> None:
+    db_file = tmp_path / "checkpoints.db"
+
+    def new_saver() -> SqliteSaver:
+        return SqliteSaver(sqlite3.connect(db_file, check_same_thread=False))
+
+    agent.set_checkpointer(new_saver())
+    run_agent("remember the number 42", "s-restart", model=ScriptedModel(script=[AIMessage("ok")]))
+
+    # A restart: a new process opens the same file and has no state in memory.
+    agent.set_checkpointer(new_saver())
+    model = ScriptedModel(script=[AIMessage("You said 42.")])
+    run_agent("what number did I say?", "s-restart", model=model)
+
+    shown = " ".join(str(message.content) for message in model.seen[0])
+    assert "remember the number 42" in shown
+    assert "what number did I say?" in shown
+
+
+def test_clear_thread_forgets_one_session_only(env: Session) -> None:
+    run_agent("zebra-note", "s-a", model=ScriptedModel(script=[AIMessage("a")]))
+    run_agent("walrus-note", "s-b", model=ScriptedModel(script=[AIMessage("b")]))
+
+    agent.clear_thread("s-a")
+
+    again_a = ScriptedModel(script=[AIMessage("fresh")])
+    run_agent("third message", "s-a", model=again_a)
+    again_b = ScriptedModel(script=[AIMessage("still here")])
+    run_agent("fourth message", "s-b", model=again_b)
+    assert "zebra-note" not in " ".join(str(m.content) for m in again_a.seen[0])
+    assert "walrus-note" in " ".join(str(m.content) for m in again_b.seen[0])

@@ -11,10 +11,11 @@ Safety rules enforced here in code, not left to the prompt:
 - Tools return strings, including for errors, and never raise to the model.
 """
 
+import json
 import logging
 import re
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import date
 from enum import StrEnum
 from functools import wraps
@@ -23,10 +24,10 @@ from typing import Any
 from langchain.tools import ToolRuntime, tool
 from pydantic import ValidationError
 from sqlalchemy.engine import Engine
-from sqlmodel import Session
+from sqlmodel import Session, col, delete
 
 from app import database, services
-from app.models import Priority, Status, Task
+from app.models import ChatSessionState, Priority, Status, Task
 from app.schemas import TaskCreate, TaskUpdate
 
 logger = logging.getLogger(__name__)
@@ -63,11 +64,55 @@ class SessionState:
     pending_delete: PendingDelete | None = None
 
 
-_sessions: dict[str, SessionState] = {}
+_sessions: dict[str, SessionState] = {}  # in-memory copies; the database is the long-term store
 
 
 def get_state(session_id: str) -> SessionState:
-    return _sessions.setdefault(session_id, SessionState())
+    """The session's state: from memory, else restored from the database, else a new one."""
+    if session_id not in _sessions:
+        _sessions[session_id] = _load_state(session_id) or SessionState()
+    return _sessions[session_id]
+
+
+def _load_state(session_id: str) -> SessionState | None:
+    try:
+        with _open_session() as session:
+            row = session.get(ChatSessionState, session_id)
+        if row is None:
+            return None
+        data = json.loads(row.data)
+        pending = data["pending_delete"]
+        return SessionState(
+            turn=data["turn"],
+            confirmed=data["confirmed"],
+            candidate_ids=set(data["candidate_ids"]),
+            pending_delete=PendingDelete(**pending) if pending else None,
+        )
+    except Exception:
+        logger.exception("Could not restore the state of session %s; starting fresh", session_id)
+        return None
+
+
+def save_state(session_id: str) -> None:
+    """Write the session's state to the database. run_agent calls this after every message."""
+    state = _sessions.get(session_id)
+    if state is None:
+        return
+    data: dict[str, Any] = asdict(state)
+    data["candidate_ids"] = sorted(state.candidate_ids)  # JSON has no sets
+    try:
+        with _open_session() as session:
+            session.merge(ChatSessionState(session_id=session_id, data=json.dumps(data)))
+            session.commit()
+    except Exception:
+        logger.exception("Could not save the state of session %s", session_id)
+
+
+def clear_state(session: Session, session_id: str) -> None:
+    """Forget a session's candidate ids, pending delete and turn counter (used by /clear)."""
+    _sessions.pop(session_id, None)
+    session.exec(delete(ChatSessionState).where(col(ChatSessionState.session_id) == session_id))
+    session.commit()
 
 
 _YES = re.compile(
@@ -100,6 +145,7 @@ def next_turn(session_id: str, message: str = "") -> int:
 
 
 def reset_sessions() -> None:
+    """Forget every in-memory copy, as a restart would. The database keeps the saved state."""
     _sessions.clear()
 
 

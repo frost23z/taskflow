@@ -9,6 +9,7 @@ from chromadb.api.models.Collection import Collection
 from fastapi.testclient import TestClient
 from sqlmodel import Session, create_engine
 
+from app import chat as chat_history
 from app import database, main, services
 from app.database import get_session
 from app.llm import LLMConfigError
@@ -188,3 +189,73 @@ def test_fresh_setup_creates_the_database_on_startup(
     fresh.dispose()
     assert response.status_code == 200
     assert response.json() == []
+
+
+# --- chat history -------------------------------------------------------------------------------
+
+
+def history(client: TestClient, session_id: str = SID) -> list[dict[str, Any]]:
+    response = client.get("/api/chat/history", params={"session_id": session_id})
+    assert response.status_code == 200
+    return response.json()
+
+
+def test_history_is_empty_for_a_new_session(client: TestClient) -> None:
+    assert history(client) == []
+
+
+def test_chat_exchanges_are_stored_and_returned_oldest_first(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    replies = iter(["first reply", "second reply"])
+    monkeypatch.setattr(main, "run_agent", lambda message, session_id, model=None: next(replies))
+
+    client.post("/api/chat", json={"message": "one", "session_id": SID})
+    client.post("/api/chat", json={"message": "two", "session_id": SID})
+
+    messages = history(client)
+    assert [(m["role"], m["content"]) for m in messages] == [
+        ("user", "one"),
+        ("assistant", "first reply"),
+        ("user", "two"),
+        ("assistant", "second reply"),
+    ]
+    assert messages[0]["created_at"]
+
+
+def test_history_is_separate_per_session(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(main, "run_agent", lambda message, session_id, model=None: "ok")
+    client.post("/api/chat", json={"message": "mine", "session_id": "session-a"})
+    client.post("/api/chat", json={"message": "theirs", "session_id": "session-b"})
+
+    assert [m["content"] for m in history(client, "session-a")] == ["mine", "ok"]
+    assert [m["content"] for m in history(client, "session-b")] == ["theirs", "ok"]
+
+
+def test_failed_agent_runs_are_not_stored(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def broken(message: str, session_id: str, model: Any = None) -> str:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(main, "run_agent", broken)
+    client.post("/api/chat", json={"message": "hi", "session_id": SID})
+
+    assert history(client) == []
+
+
+def test_history_returns_only_the_latest_messages(
+    client: TestClient, session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(chat_history, "HISTORY_LIMIT", 3)
+    for number in range(3):
+        chat_history.save_exchange(session, SID, f"q{number}", f"a{number}")
+
+    assert [m["content"] for m in history(client)] == ["a1", "q2", "a2"]
+
+
+@pytest.mark.parametrize("params", [{}, {"session_id": ""}, {"session_id": "s" * 65}])
+def test_history_requires_a_valid_session_id(client: TestClient, params: dict[str, str]) -> None:
+    assert client.get("/api/chat/history", params=params).status_code == 422

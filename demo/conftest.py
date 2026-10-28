@@ -38,6 +38,7 @@ def base_url() -> Iterator[str]:
         **os.environ,
         "DATABASE_URL": f"sqlite:///{data_dir / 'tasks.db'}",
         "CHROMA_PATH": str(data_dir / "chroma"),
+        "CHECKPOINT_PATH": str(data_dir / "checkpoints.db"),
         "APP_ENV": "prod",  # no SQL logging in the server output
     }
     subprocess.run([sys.executable, "-m", "app.seed"], cwd=ROOT, env=env, check=True)

@@ -56,3 +56,22 @@ class Task(TaskBase, table=True):
     id: int | None = Field(default=None, primary_key=True)
     created_at: datetime = Field(default_factory=utcnow)
     updated_at: datetime = Field(default_factory=utcnow, sa_column_kwargs={"onupdate": utcnow})
+
+
+class ChatMessage(SQLModel, table=True):
+    """One line of the visible chat. The agent's own memory is kept separately (see app.agent)."""
+
+    __table_args__ = {"sqlite_autoincrement": True}
+
+    id: int | None = Field(default=None, primary_key=True)
+    session_id: str = Field(index=True, max_length=64)
+    role: str  # "user" or "assistant"
+    content: str
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class ChatSessionState(SQLModel, table=True):
+    """The tools' per-session state (candidate ids, pending delete), saved as JSON."""
+
+    session_id: str = Field(primary_key=True, max_length=64)
+    data: str

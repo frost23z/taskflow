@@ -385,6 +385,21 @@
         }
       }
       loadTasks();
+
+      // Show the earlier conversation of this browser's session after a refresh or restart.
+      async function loadHistory() {
+        try {
+          const res = await fetch(
+            `/api/chat/history?session_id=${encodeURIComponent(sessionId)}`,
+          );
+          if (!res.ok) throw new Error(String(res.status));
+          for (const message of await res.json())
+            addBubble(message.role === "user" ? "user" : "bot", message.content);
+        } catch {
+          addBubble("error", "Could not load your earlier chat.");
+        }
+      }
+      loadHistory();
     </script>
   </body>
 </html>

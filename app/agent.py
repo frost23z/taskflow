@@ -1,15 +1,20 @@
 """The task agent: create_agent with the task tools, per-session memory and model fallback."""
 
+import os
+import sqlite3
 from datetime import date
+from pathlib import Path
 from typing import Any
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, dynamic_prompt
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.memory import InMemorySaver
+from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app import tools
+from app.database import DATA_DIR
 from app.llm import build_model
 from app.tools import AgentContext
 
@@ -45,9 +50,34 @@ def _system_prompt(request: ModelRequest) -> str:
     return build_system_prompt(date.today())
 
 
-# One in-memory checkpointer for the whole process: history is kept per session_id (thread_id).
-_checkpointer = InMemorySaver()
+# The agent's memory (what the model sees as the conversation) is kept per session_id, which is the
+# LangGraph thread_id. It lives in its own SQLite file so it survives a restart. The visible chat is
+# a separate table (app.chat); /clear removes both.
+CHECKPOINT_PATH = os.getenv("CHECKPOINT_PATH", str(DATA_DIR / "checkpoints.db"))
+
+_checkpointer: BaseCheckpointSaver[Any] | None = None
 _default_agent: Any = None
+
+
+def get_checkpointer() -> BaseCheckpointSaver[Any]:
+    global _checkpointer
+    if _checkpointer is None:
+        Path(CHECKPOINT_PATH).parent.mkdir(parents=True, exist_ok=True)
+        # FastAPI runs the chat endpoint in a thread pool; SqliteSaver guards the connection.
+        _checkpointer = SqliteSaver(sqlite3.connect(CHECKPOINT_PATH, check_same_thread=False))
+    return _checkpointer
+
+
+def set_checkpointer(saver: BaseCheckpointSaver[Any] | None) -> None:
+    """Use another checkpointer, e.g. an in-memory one in tests (None goes back to SQLite)."""
+    global _checkpointer, _default_agent
+    _checkpointer = saver
+    _default_agent = None  # the cached agent holds the old checkpointer
+
+
+def clear_thread(session_id: str) -> None:
+    """Forget the agent's memory of one session."""
+    get_checkpointer().delete_thread(session_id)
 
 
 def _build_agent(model: BaseChatModel, fallback: list[AgentMiddleware[Any, Any, Any]]) -> Any:
@@ -56,7 +86,7 @@ def _build_agent(model: BaseChatModel, fallback: list[AgentMiddleware[Any, Any, 
         tools=tools.TOOLS,
         # The prompt middleware goes first (outermost) so fallback models get the same prompt.
         middleware=[_system_prompt, *fallback],
-        checkpointer=_checkpointer,
+        checkpointer=get_checkpointer(),
         context_schema=AgentContext,
     )
 
@@ -79,9 +109,13 @@ def run_agent(message: str, session_id: str, model: BaseChatModel | None = None)
     """
     agent = _get_agent(model)
     tools.next_turn(session_id, message)
-    result = agent.invoke(
-        {"messages": [HumanMessage(message)]},
-        config={"configurable": {"thread_id": session_id}},
-        context=AgentContext(session_id=session_id),
-    )
+    try:
+        result = agent.invoke(
+            {"messages": [HumanMessage(message)]},
+            config={"configurable": {"thread_id": session_id}},
+            context=AgentContext(session_id=session_id),
+        )
+    finally:
+        # Even a failed run may have offered candidates or recorded a pending delete.
+        tools.save_state(session_id)
     return result["messages"][-1].text or "(The assistant returned no text.)"
