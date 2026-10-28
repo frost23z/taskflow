@@ -9,7 +9,9 @@ MIN_SIMILARITY and AMBIGUITY_MARGIN), so the numbers describe what the agent wou
 
 Each case has an expected outcome:
 - act:  one task is the clear match, so the agent may update/delete it without asking.
-- ask:  several tasks are equally plausible, so the agent must ask which one is meant.
+- ask:  several tasks are plausible, so the agent must ask which one is meant. Passes when at
+        least two tasks are plausible and all of them are expected ones (so the agent never acts
+        alone, and never asks about unrelated tasks).
 - list: a search/list query; every expected task must appear in the top results.
 - none: nothing in the data matches, so the agent must answer "not found".
 
@@ -69,6 +71,18 @@ CASES: list[Case] = [
     # Genuinely ambiguous: the agent must ask.
     Case("demo", "ask", ("Finish demo slides", "Record demo video")),
     Case("the demo task", "ask", ("Finish demo slides", "Record demo video")),
+    # The assignment's own example ("change the priority of the API task"): three tasks mention
+    # the API, so acting on one of them would be a wrong guess. Not checked against real
+    # embeddings yet: run the eval and look at the scores before trusting this expectation.
+    Case(
+        "the API task",
+        "ask",
+        (
+            "Add pagination to the orders API",
+            "Rotate production API keys",
+            "Update API documentation",
+        ),
+    ),
     # Search and list requests: every expected task must be in the top results.
     Case(
         "documentation",
@@ -138,7 +152,7 @@ def run_case(case: Case, titles_by_id: dict[int, str]) -> Result:
         ok = plausible == list(case.expected)
         outcome = f"acts on {plausible[0]!r}" if len(plausible) == 1 else _describe(plausible)
     elif case.kind == "ask":
-        ok = set(plausible) == set(case.expected)
+        ok = len(plausible) >= 2 and set(plausible) <= set(case.expected)
         outcome = _describe(plausible)
     elif case.kind == "list":
         ok = all(title in ranked_titles for title in case.expected)
