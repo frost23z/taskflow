@@ -1,0 +1,28 @@
+Very 1st prompt feeding the pdf.
+
+give me roadmap what i need to learn to implement this project properly think carefully
+-----------------------------------
+which framework would be best for building it flask or fastapi. for frontend simple html, css or react
+-------------------------------------
+ok then lets go with fastapi
+----------------------------------------
+why do i need sqlite ?? the docs only mentioned chromadb is it not enough??
+----------------------------------------
+for ai part do i make mcp server or just langchain and lang graph??
+
+------------------------------------------
+
+ok you already added too much complexity
+
+heres my plan. perfect it. will do it fully vibecoding
+
+step 1: scaffled the project and set up dev tools(ruff, pyrefly, pytest) done manually
+step 2: set up db.  sqllite and sqlalchemy and model
+step 3: i give the pic and current source code and then make api and frontend. simple fast api that will in future steps be ai tools.  but in this steps just  simple api use curl to do the modification and  refelct on frontend. in frontend the ai art is set to commig sooon
+
+fro now perfect this  three step and give proper prompts to do these task io will use new session for each steps
+
+
+------------------------------------
+
+after this used generated prompt. tweaked when i thought it was making too complex
